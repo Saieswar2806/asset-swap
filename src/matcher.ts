@@ -9,17 +9,36 @@ export interface MatcherOptions {
 }
 
 /**
+ * Rounds a monetary amount to 2 decimal places (paise precision)
+ * to avoid JavaScript floating-point inaccuracies.
+ */
+export function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
  * Filters listings that are verified, unlocked, and have a valid broker-reviewed valuation > 0.
  * Unreviewed (draft, submitted, under_review, rejected) and locked listings are strictly excluded.
  */
 export function eligible(listings: Listing[]): Listing[] {
   return listings.filter(
     (p) =>
+      p !== null &&
+      typeof p === "object" &&
+      typeof p.id === "string" &&
+      p.id.trim().length > 0 &&
       p.status === "reviewed" &&
       !p.locked &&
       typeof p.reviewedValue === "number" &&
       Number.isFinite(p.reviewedValue) &&
-      p.reviewedValue > 0
+      p.reviewedValue > 0 &&
+      typeof p.area === "number" &&
+      Number.isFinite(p.area) &&
+      p.area > 0 &&
+      p.wants !== null &&
+      typeof p.wants === "object" &&
+      Array.isArray(p.wants.propertyTypes) &&
+      p.wants.propertyTypes.length > 0
   );
 }
 
@@ -32,20 +51,21 @@ export function eligible(listings: Listing[]): Listing[] {
  * 4. Location compatibility within configured radius or preferred locations
  */
 export function edgeDistance(a: Listing, b: Listing, radiusKm: number): number | null {
-  // 1. Must be distinct owners
-  const aOwner = a.ownerId ?? a.ownerName;
-  const bOwner = b.ownerId ?? b.ownerName;
-  if (aOwner && bOwner && aOwner === bOwner) return null;
-  if (a.id === b.id) return null;
+  if (!a || !b || a.id === b.id) return null;
+
+  // 1. Must be distinct owners (case-insensitive normalized)
+  const aOwner = (a.ownerId ?? a.ownerName ?? "").trim().toLowerCase();
+  const bOwner = (b.ownerId ?? b.ownerName ?? "").trim().toLowerCase();
+  if (!aOwner || !bOwner || aOwner === bOwner) return null;
 
   // 2. Property type compatibility
-  if (!a.wants.propertyTypes.includes(b.propertyType)) return null;
+  if (!a.wants?.propertyTypes?.includes(b.propertyType)) return null;
 
   // 3. Minimum area requirement
   if (typeof a.wants.minArea === "number" && a.wants.minArea > 0) {
     const requiredSqFt = toSqFt(a.wants.minArea, a.wants.minAreaUnit ?? "sq_ft");
     const targetSqFt = toSqFt(b.area, b.areaUnit);
-    if (targetSqFt < requiredSqFt) return null;
+    if (targetSqFt <= 0 || targetSqFt < requiredSqFt) return null;
   }
 
   // 4. Location compatibility
@@ -56,7 +76,8 @@ export function edgeDistance(a: Listing, b: Listing, radiusKm: number): number |
  * Calculates cash boot settlement for each participant in an exchange cycle.
  *
  * In an exchange cycle [L0, L1, ..., Ln-1]:
- * Each participant Li gives their own asset and receives the next participant's asset (Li+1).
+ * Participant Li wants and receives the next participant's asset (Li+1).
+ * Participant Li gives their own asset to the preceding participant (Li-1).
  *
  * Formula:
  * Amount = Value of Asset Received − Value of Asset Given
@@ -64,25 +85,25 @@ export function edgeDistance(a: Listing, b: Listing, radiusKm: number): number |
  * - Negative value: Owner gave higher value asset -> Owner RECEIVES cash boot
  * - Zero: Exact 1:1 asset value exchange (settled)
  *
- * Sum of amounts across any closed cycle is guaranteed to equal 0.
+ * Sum of signed amounts across any closed cycle is guaranteed to equal 0.
  */
 export function makeBoots(cycle: Listing[]): Boot[] {
   return cycle.map((person, index) => {
-    const next = cycle[(index + 1) % cycle.length];
+    const receivedAsset = cycle[(index + 1) % cycle.length];
     const givesValue = person.reviewedValue as number;
-    const receivesValue = next.reviewedValue as number;
-    const amount = receivesValue - givesValue;
-    const cashDifference = Math.abs(amount);
+    const receivesValue = receivedAsset.reviewedValue as number;
+    const amount = roundCurrency(receivesValue - givesValue);
+    const cashDifference = roundCurrency(Math.abs(amount));
 
     let action: "pays" | "receives" | "settled";
     let explanation: string;
 
     if (amount > 0) {
       action = "pays";
-      explanation = `${person.ownerName} pays ₹${cashDifference.toLocaleString("en-IN")} cash boot (gives ${person.propertyType} valued at ₹${givesValue.toLocaleString("en-IN")}, receives ${next.propertyType} valued at ₹${receivesValue.toLocaleString("en-IN")})`;
+      explanation = `${person.ownerName} pays ₹${cashDifference.toLocaleString("en-IN")} cash boot (gives ${person.propertyType} valued at ₹${givesValue.toLocaleString("en-IN")}, receives ${receivedAsset.propertyType} valued at ₹${receivesValue.toLocaleString("en-IN")})`;
     } else if (amount < 0) {
       action = "receives";
-      explanation = `${person.ownerName} receives ₹${cashDifference.toLocaleString("en-IN")} cash boot (gives ${person.propertyType} valued at ₹${givesValue.toLocaleString("en-IN")}, receives ${next.propertyType} valued at ₹${receivesValue.toLocaleString("en-IN")})`;
+      explanation = `${person.ownerName} receives ₹${cashDifference.toLocaleString("en-IN")} cash boot (gives ${person.propertyType} valued at ₹${givesValue.toLocaleString("en-IN")}, receives ${receivedAsset.propertyType} valued at ₹${receivesValue.toLocaleString("en-IN")})`;
     } else {
       action = "settled";
       explanation = `${person.ownerName} has ₹0 cash boot (exact value match at ₹${givesValue.toLocaleString("en-IN")})`;
@@ -95,8 +116,8 @@ export function makeBoots(cycle: Listing[]): Boot[] {
       givesAssetId: person.id,
       givesPropertyType: person.propertyType,
       givesValue,
-      receivesAssetId: next.id,
-      receivesPropertyType: next.propertyType,
+      receivesAssetId: receivedAsset.id,
+      receivesPropertyType: receivedAsset.propertyType,
       receivesValue,
       amount,
       action,
@@ -130,23 +151,36 @@ export function bootLimitsSatisfied(cycle: Listing[], boots: Boot[]): boolean {
 }
 
 /**
- * Creates canonical cycle keys to eliminate duplicate cycles.
- * - For 2-party cycles [A, B]: A<->B is identical to B<->A, so sorted listing IDs are used.
- * - For 3-party cycles [A, B, C]: Rotations [A, B, C], [B, C, A], [C, A, B] are identical cycles,
- *   so the lexicographically smallest rotation is used.
+ * Generates a canonical, collision-free match ID:
+ * - Direct 2-party swaps [A, B] and [B, A] represent the exact same bilateral exchange,
+ *   so they produce rotation-independent ID: match-2p-${sorted[0]}-${sorted[1]}.
+ * - 3-party (or multi-party) cycles: Rotations of the same directed cycle [A, B, C], [B, C, A], [C, A, B]
+ *   produce the exact same ID (rotated to start with the lexicographically smallest ID).
+ * - Different directed cycles on the same nodes (e.g. A->B->C vs A->C->B) produce different IDs.
  */
-export function canonicalKey(ids: string[]): string {
+export function getCanonicalMatchId(ids: string[]): string {
   if (ids.length === 2) {
-    return [...ids].sort().join("<->");
+    const sorted = [...ids].sort();
+    return `match-2p-${sorted[0]}-${sorted[1]}`;
   }
 
-  // Rotations
-  const rotations: string[] = [];
-  for (let i = 0; i < ids.length; i++) {
-    rotations.push([...ids.slice(i), ...ids.slice(0, i)].join("->"));
+  // Find index of lexicographically smallest listing ID
+  let minIdx = 0;
+  for (let i = 1; i < ids.length; i++) {
+    if (ids[i] < ids[minIdx]) {
+      minIdx = i;
+    }
   }
-  rotations.sort();
-  return rotations[0];
+
+  const canonicalRotation = [...ids.slice(minIdx), ...ids.slice(0, minIdx)];
+  return `match-${ids.length}p-${canonicalRotation.join("-")}`;
+}
+
+/**
+ * Canonical key for map deduplication (identical to getCanonicalMatchId).
+ */
+export function canonicalKey(ids: string[]): string {
+  return getCanonicalMatchId(ids);
 }
 
 /**
@@ -160,7 +194,7 @@ function buildExplanation(
 ): { summary: string; reasons: string[] } {
   const partyCount = cycle.length;
   const isDirect = partyCount === 2;
-  const totalBoot = boots.reduce((sum, b) => sum + Math.abs(b.amount), 0);
+  const totalBoot = roundCurrency(boots.reduce((sum, b) => sum + Math.abs(b.amount), 0));
 
   const summary = isDirect
     ? `Direct 2-party asset exchange between ${cycle[0].ownerName} and ${cycle[1].ownerName}${
@@ -170,10 +204,19 @@ function buildExplanation(
 
   const reasons: string[] = [];
 
-  // Property type and transfer alignment
+  // Actual physical transfers: Giver gives their asset to Receiver
   for (const leg of legs) {
     reasons.push(
-      `${leg.toOwnerName} receives desired ${leg.transferredPropertyType} from ${leg.fromOwnerName} (transferred asset #${leg.transferredAssetId}, valued at ₹${leg.assetValue.toLocaleString("en-IN")}).`
+      `${leg.fromOwnerName} gives ${leg.transferredPropertyType} (Asset #${leg.transferredAssetId}, valued at ₹${leg.assetValue.toLocaleString("en-IN")}) to ${leg.toOwnerName}.`
+    );
+  }
+
+  // Wants satisfaction
+  for (let i = 0; i < cycle.length; i++) {
+    const seeker = cycle[i];
+    const receivedAsset = cycle[(i + 1) % cycle.length];
+    reasons.push(
+      `${seeker.ownerName} receives desired ${receivedAsset.propertyType} (Asset #${receivedAsset.id}) from ${receivedAsset.ownerName}.`
     );
   }
 
@@ -181,14 +224,15 @@ function buildExplanation(
   for (let i = 0; i < cycle.length; i++) {
     const seeker = cycle[i];
     const target = cycle[(i + 1) % cycle.length];
-    const leg = legs[i];
-    if (leg.distanceKm === 0) {
+    // Find distance evaluated by seeker for target
+    const legDistance = locationDistanceKm(seeker, target, seeker.wants.maxDistanceKm ?? 50);
+    if (legDistance === 0) {
       reasons.push(
         `${seeker.ownerName}'s location requirement satisfied: Target property in ${target.locality}, ${target.district} directly matches preferred locations.`
       );
     } else {
       reasons.push(
-        `${seeker.ownerName}'s location requirement satisfied: Target property in ${target.locality} is within ${leg.distanceKm} km (max radius: ${seeker.wants.maxDistanceKm ?? 50} km).`
+        `${seeker.ownerName}'s location requirement satisfied: Target property in ${target.locality} is within ${legDistance ?? 0} km (max radius: ${seeker.wants.maxDistanceKm ?? 50} km).`
       );
     }
   }
@@ -215,6 +259,16 @@ export function findMatches(
   allListings: Listing[],
   options: MatcherOptions = {}
 ): Match[] {
+  // Validate that input listings do not contain duplicate IDs
+  const seenListingIds = new Set<string>();
+  for (const item of allListings) {
+    if (!item || typeof item.id !== "string") continue;
+    if (seenListingIds.has(item.id)) {
+      throw new Error(`Duplicate listing ID detected in input listings: ${item.id}`);
+    }
+    seenListingIds.add(item.id);
+  }
+
   const radiusKm = options.radiusKm ?? 50;
   const maxCycles = options.maxCycles ?? 500;
   const includeThreeParty = options.includeThreeParty !== false;
@@ -223,7 +277,7 @@ export function findMatches(
   const byId = new Map(listings.map((p) => [p.id, p]));
   const adjacency = new Map<string, Array<{ id: string; distance: number }>>();
 
-  // Build directed compatibility graph
+  // Build directed compatibility graph (Edge A -> B means A wants and is willing to receive B's asset)
   for (const a of listings) {
     const edges: Array<{ id: string; distance: number }> = [];
     for (const b of listings) {
@@ -248,39 +302,52 @@ export function findMatches(
           const cycle = path.map((id) => byId.get(id)!);
 
           // Verify all owners in cycle are distinct
-          const ownerIds = new Set(cycle.map((p) => p.ownerId ?? p.ownerName));
+          const ownerIds = new Set(
+            cycle.map((p) => (p.ownerId ?? p.ownerName ?? "").trim().toLowerCase())
+          );
           if (ownerIds.size !== cycle.length) continue;
 
           // Cash boot calculations
           const boots = makeBoots(cycle);
-          const sum = boots.reduce((total, b) => total + b.amount, 0);
+          const sum = roundCurrency(boots.reduce((total, b) => total + b.amount, 0));
 
-          // Sum must be zero (with floating point tolerance) and limits must be respected
-          if (Math.abs(sum) > 0.01 || !bootLimitsSatisfied(cycle, boots)) continue;
+          // Sum must be zero (with paise monetary precision) and limits must be respected
+          if (Math.abs(sum) > 0.001 || !bootLimitsSatisfied(cycle, boots)) continue;
 
-          const key = canonicalKey(path);
-          if (found.has(key)) continue;
+          // Reliable canonical match ID prevents collisions
+          const id = getCanonicalMatchId(path);
+          if (found.has(id)) continue;
 
-          // Compute leg distances
-          const exchangeLegs: ExchangeLeg[] = path.map((fromId, i) => {
-            const toId = path[(i + 1) % path.length]!;
-            const fromPerson = byId.get(fromId)!;
-            const toPerson = byId.get(toId)!;
-            const dist = (adjacency.get(fromId) ?? []).find((e) => e.id === toId)?.distance ?? 0;
+          // Actual physical transfers:
+          // In cycle A -> B -> C -> A:
+          // A wants B (receives B from B)
+          // B wants C (receives C from C)
+          // C wants A (receives A from A)
+          // Therefore:
+          // - A gives Asset A to C
+          // - B gives Asset B to A
+          // - C gives Asset C to B
+          // Each participant path[i] gives their asset to predecessor path[(i - 1 + n) % n]
+          const exchangeLegs: ExchangeLeg[] = path.map((giverId, i) => {
+            const receiverId = path[(i - 1 + path.length) % path.length]!;
+            const giver = byId.get(giverId)!;
+            const receiver = byId.get(receiverId)!;
+            // Transit distance: distance between receiver and the transferred asset
+            const dist = (adjacency.get(receiverId) ?? []).find((e) => e.id === giverId)?.distance ?? 0;
             return {
-              fromListingId: fromPerson.id,
-              fromOwnerName: fromPerson.ownerName,
-              toListingId: toPerson.id,
-              toOwnerName: toPerson.ownerName,
-              transferredAssetId: toPerson.id,
-              transferredPropertyType: toPerson.propertyType,
-              assetValue: toPerson.reviewedValue as number,
+              fromListingId: giver.id,
+              fromOwnerName: giver.ownerName,
+              toListingId: receiver.id,
+              toOwnerName: receiver.ownerName,
+              transferredAssetId: giver.id,
+              transferredPropertyType: giver.propertyType,
+              assetValue: giver.reviewedValue as number,
               distanceKm: dist
             };
           });
 
           const locationScoreKm = exchangeLegs.reduce((s, leg) => s + leg.distanceKm, 0);
-          const totalAbsoluteBoot = boots.reduce((s, b) => s + Math.abs(b.amount), 0);
+          const totalAbsoluteBoot = roundCurrency(boots.reduce((s, b) => s + Math.abs(b.amount), 0));
           const totalCycleValue = cycle.reduce((s, c) => s + (c.reviewedValue ?? 0), 0);
 
           const matchScore = calculateMatchScore({
@@ -292,12 +359,9 @@ export function findMatches(
           });
 
           const listingIds = [...path];
-          const sortedIds = [...listingIds].sort().join("-");
-          const id = `match-${path.length}p-${sortedIds}`;
-
           const { summary, reasons } = buildExplanation(cycle, boots, exchangeLegs, matchScore);
 
-          found.set(key, {
+          found.set(id, {
             id,
             listingIds,
             cycle: [...path, path[0]!],

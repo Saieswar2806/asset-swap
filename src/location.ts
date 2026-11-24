@@ -1,7 +1,7 @@
 import type { AreaUnit, Listing } from "./types.js";
 
 export const normalize = (value: string): string =>
-  value.trim().toLowerCase().replace(/[-_]/g, " ");
+  (value ?? "").trim().toLowerCase().replace(/[-_]/g, " ");
 
 /**
  * Standard area conversion factors to square feet:
@@ -15,6 +15,9 @@ export const SQFT_CONVERSIONS: Record<AreaUnit, number> = {
 };
 
 export function toSqFt(area: number, unit: AreaUnit = "sq_ft"): number {
+  if (typeof area !== "number" || !Number.isFinite(area) || area <= 0) {
+    return 0;
+  }
   const factor = SQFT_CONVERSIONS[unit] ?? 1;
   return area * factor;
 }
@@ -91,7 +94,7 @@ export const KARNATAKA_GEO_DATABASE: Record<string, GeoCoordinate> = {
 
 export function lookupCoordinates(locality: string, district?: string): { lat: number; lon: number } | null {
   const normLoc = normalize(locality);
-  if (KARNATAKA_GEO_DATABASE[normLoc]) {
+  if (normLoc && KARNATAKA_GEO_DATABASE[normLoc]) {
     return {
       lat: KARNATAKA_GEO_DATABASE[normLoc].latitude,
       lon: KARNATAKA_GEO_DATABASE[normLoc].longitude
@@ -100,7 +103,7 @@ export function lookupCoordinates(locality: string, district?: string): { lat: n
 
   if (district) {
     const normDist = normalize(district);
-    if (KARNATAKA_GEO_DATABASE[normDist]) {
+    if (normDist && KARNATAKA_GEO_DATABASE[normDist]) {
       return {
         lat: KARNATAKA_GEO_DATABASE[normDist].latitude,
         lon: KARNATAKA_GEO_DATABASE[normDist].longitude
@@ -129,14 +132,20 @@ export function haversineKm(
 }
 
 /**
- * Resolves coordinates for a listing, using explicit lat/lon if provided or looking up in the Karnataka geo database.
+ * Resolves coordinates for a listing:
+ * Validates that explicit latitude and longitude are valid finite numbers within bounds.
+ * Falls back to looking up locality/district in the Karnataka database.
  */
 export function resolveCoordinates(listing: Listing): { lat: number; lon: number } | null {
   if (
     typeof listing.latitude === "number" &&
     typeof listing.longitude === "number" &&
-    !Number.isNaN(listing.latitude) &&
-    !Number.isNaN(listing.longitude)
+    Number.isFinite(listing.latitude) &&
+    Number.isFinite(listing.longitude) &&
+    listing.latitude >= -90 &&
+    listing.latitude <= 90 &&
+    listing.longitude >= -180 &&
+    listing.longitude <= 180
   ) {
     return { lat: listing.latitude, lon: listing.longitude };
   }
@@ -145,20 +154,23 @@ export function resolveCoordinates(listing: Listing): { lat: number; lon: number
 
 /**
  * Returns the geographical distance in kilometers between seeker and target property.
- * If target matches preferredLocations explicitly, distance is 0 km (exact preference match).
- * If coordinates can be resolved and distance is within radiusKm, returns the actual distance.
- * Otherwise returns null indicating location incompatibility.
+ * Rules:
+ * 1. If target matches preferredLocations explicitly (locality or district), returns 0 km.
+ * 2. If coordinates can be resolved for both and distance is <= radiusKm, returns distance rounded to 1 decimal place.
+ * 3. Otherwise returns null indicating location incompatibility.
  */
 export function locationDistanceKm(
   seeker: Listing,
   target: Listing,
   radiusKm: number = 50
 ): number | null {
-  const preferred = (seeker.wants.preferredLocations ?? []).map(normalize);
+  if (!seeker || !target) return null;
+
+  const preferred = (seeker.wants?.preferredLocations ?? []).map(normalize).filter((p) => p.length > 0);
   const targetLocality = normalize(target.locality);
   const targetDistrict = normalize(target.district);
 
-  // Exact preference match: target locality or district directly listed in preferredLocations
+  // Exact or substring match in preferredLocations
   if (
     preferred.includes(targetLocality) ||
     preferred.includes(targetDistrict) ||
@@ -168,7 +180,7 @@ export function locationDistanceKm(
     return 0;
   }
 
-  // Coordinate-based Haversine distance within configured radius
+  // Coordinate-based Haversine distance within effective radius
   const seekerCoords = resolveCoordinates(seeker);
   const targetCoords = resolveCoordinates(target);
 
@@ -179,7 +191,11 @@ export function locationDistanceKm(
       targetCoords.lat,
       targetCoords.lon
     );
-    const effectiveRadius = seeker.wants.maxDistanceKm ?? radiusKm;
+    const effectiveRadius =
+      typeof seeker.wants?.maxDistanceKm === "number" && seeker.wants.maxDistanceKm > 0
+        ? seeker.wants.maxDistanceKm
+        : radiusKm;
+
     if (distance <= effectiveRadius) {
       return Math.round(distance * 10) / 10;
     }

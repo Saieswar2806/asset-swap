@@ -18,22 +18,21 @@ function displayMatch(match: Match, index: number): void {
   console.log(` MATCH #${index + 1}: ${match.id}`);
   console.log(`--------------------------------------------------------------------------------`);
   console.log(` • Type:                   ${match.partyCount}-Party ${match.partyCount === 2 ? "Direct Bilateral Exchange" : "Circular Multi-Party Exchange"}`);
-  console.log(` • Match Quality Score:    ${match.matchScore}/100`);
-  console.log(` • Verification Status:    ${match.verificationStatus.toUpperCase()} (Certified Broker Valuation)`);
+  console.log(` • Match Quality Score:    ${match.matchScore}/100 (Compatibility Heuristic)`);
+  console.log(` • Verification Status:    BROKER-REVIEWED (Human Broker Valuation Review)`);
   console.log(` • Number of Participants: ${match.partyCount}`);
   console.log(` • Exchange Cycle:         ${match.cycle.join("  →  ")}`);
   console.log(` • Total Cash Boot:        ${formatCurrency(match.totalAbsoluteBoot)} (Net cycle balance: ₹0)`);
-  console.log(` • Total Location Travel:  ${match.locationScoreKm.toFixed(1)} km`);
+  console.log(` • Total Transit Distance: ${match.locationScoreKm.toFixed(1)} km`);
   console.log(``);
 
   console.log(` 📋 PARTICIPATING OWNERS & ASSET TRANSFERS:`);
   for (let i = 0; i < match.exchangeLegs.length; i++) {
     const leg = match.exchangeLegs[i];
     console.log(`   ${i + 1}. [${leg.fromOwnerName}] gives asset to [${leg.toOwnerName}]:`);
-    console.log(`      Asset ID:     ${leg.transferredAssetId}`);
-    console.log(`      Asset Type:   ${leg.transferredPropertyType}`);
-    console.log(`      Asset Value:  ${formatCurrency(leg.assetValue)}`);
-    console.log(`      Distance:     ${leg.distanceKm === 0 ? "Exact locality match (0 km)" : `${leg.distanceKm} km`}`);
+    console.log(`      Transferred Asset: #${leg.transferredAssetId} (${leg.transferredPropertyType})`);
+    console.log(`      Asset Value:       ${formatCurrency(leg.assetValue)}`);
+    console.log(`      Transit Distance:  ${leg.distanceKm === 0 ? "Exact locality match (0 km)" : `${leg.distanceKm} km`}`);
   }
   console.log(``);
 
@@ -62,8 +61,8 @@ async function runDemo(): Promise<void> {
 ********************************************************************************
 `);
 
-  console.log(`📊 LOADING REALISTIC DATASET (KARNATAKA REAL ESTATE):`);
-  console.log(` • Total listings loaded:       ${seedListings.length}`);
+  console.log(`📊 LOADING FICTIONAL DEMONSTRATION DATASET (KARNATAKA REAL ESTATE):`);
+  console.log(` • Total listings loaded:       ${seedListings.length} (Fictional demonstration listings)`);
   const reviewedCount = eligible(seedListings).length;
   const lockedCount = seedListings.filter((l) => l.locked).length;
   const unreviewedCount = seedListings.length - reviewedCount - lockedCount;
@@ -119,7 +118,7 @@ async function runDemo(): Promise<void> {
     console.log(`\n3. Final Transaction State:`);
     const finalMatch = workflow.getMatches().find((m) => m.id === selectedMatch.id)!;
     console.log(`   ✓ Final Match Status: ${finalMatch.status.toUpperCase()}`);
-    console.log(`   ✓ Escrow asset locks retained until mutual deed registration.`);
+    console.log(`   ✓ Asset locks retained pending offline legal conveyancing.`);
 
     // Demonstrate rejection and lock release
     if (matches.length > 1) {
@@ -136,7 +135,11 @@ async function runDemo(): Promise<void> {
   }
 
   console.log(`\n================================================================================`);
-  console.log(` ✓ Asset Swap Core Matching Engine demonstration completed successfully.`);
+  console.log(` DISCLAIMER:`);
+  console.log(` The match score is an algorithmic heuristic reflecting relative valuation`);
+  console.log(` alignment, geographical proximity, cycle simplicity, and broker review status.`);
+  console.log(` This prototype is a technology demonstration. It does NOT perform real-money`);
+  console.log(` payment processing, escrow, legal title verification, or deed registration.`);
   console.log(`================================================================================\n`);
 }
 
