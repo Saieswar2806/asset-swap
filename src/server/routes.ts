@@ -133,13 +133,41 @@ apiRouter.get("/listings", (req: Request, res: Response) => {
     `;
     const params: unknown[] = [];
 
+    const user = req.user;
+
+    // Public / Unauthenticated Data Protection:
+    // Only approved/reviewed listings are accessible to the public discovery endpoints!
+    if (!user) {
+      query += " AND l.status = 'reviewed'";
+    } else if (user.role === "admin") {
+      // Admins can query any status requested
+      if (status && typeof status === "string") {
+        query += " AND l.status = ?";
+        params.push(status);
+      }
+    } else if (user.role === "broker") {
+      // Brokers can view reviewed or under review/submitted
+      if (status && typeof status === "string") {
+        query += " AND l.status = ?";
+        params.push(status);
+      } else {
+        query += " AND l.status IN ('submitted', 'under_review', 'reviewed')";
+      }
+    } else if (user.role === "owner") {
+      // Owners querying their own properties can see all statuses; otherwise only reviewed
+      if (ownerId && ownerId === user.id) {
+        if (status && typeof status === "string") {
+          query += " AND l.status = ?";
+          params.push(status);
+        }
+      } else {
+        query += " AND l.status = 'reviewed'";
+      }
+    }
+
     if (ownerId && typeof ownerId === "string") {
       query += " AND l.ownerId = ?";
       params.push(ownerId);
-    }
-    if (status && typeof status === "string") {
-      query += " AND l.status = ?";
-      params.push(status);
     }
     if (propertyType && typeof propertyType === "string") {
       query += " AND l.propertyType = ?";
@@ -158,7 +186,23 @@ apiRouter.get("/listings", (req: Request, res: Response) => {
     query += " ORDER BY l.createdAt DESC";
 
     const rows = db.prepare(query).all(...params) as unknown as DbListingRow[];
-    const listings = rows.map(rowToListing);
+    let listings = rows.map(rowToListing);
+
+    // Sanitize metadata for public/non-owner view (strip rejection reasons)
+    if (!user || user.role === "owner") {
+      listings = listings.map((l) => {
+        if (!user || (user.role === "owner" && l.ownerId !== user.id)) {
+          return {
+            ...l,
+            metadata: {
+              ...l.metadata,
+              rejectionReason: undefined
+            }
+          };
+        }
+        return l;
+      });
+    }
 
     res.json({ success: true, count: listings.length, data: listings });
   } catch (err: unknown) {
@@ -174,6 +218,22 @@ apiRouter.get("/listings/:id", (req: Request, res: Response) => {
     if (!listing) {
       return res.status(404).json({ success: false, error: "Listing not found" });
     }
+
+    const user = req.user;
+    // If not reviewed, only the owner, broker, or admin can access it!
+    if (listing.status !== "reviewed") {
+      if (!user || (user.role !== "admin" && user.role !== "broker" && user.id !== listing.ownerId)) {
+        return res.status(404).json({ success: false, error: "Listing not found or not published" });
+      }
+    }
+
+    // Strip rejectionReason for public or other owners
+    if (!user || (user.role === "owner" && user.id !== listing.ownerId)) {
+      if (listing.metadata) {
+        listing.metadata.rejectionReason = undefined;
+      }
+    }
+
     res.json({ success: true, data: listing });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -750,10 +810,12 @@ apiRouter.post("/workflow/respond", requireAuth, requireRole("owner", "admin"), 
       return res.status(404).json({ success: false, error: `Listing ${listingId} not found.` });
     }
 
-    if (req.user!.role !== "admin" && listing.ownerId !== req.user!.id) {
+    // Section 5 Rule: Do not allow an Admin account to substitute for an owner's consent in the normal owner workflow.
+    // Only the actual property owner who owns this listing can vote!
+    if (listing.ownerId !== req.user!.id) {
       return res.status(403).json({
         success: false,
-        error: "Forbidden: You cannot respond on behalf of another property owner."
+        error: "Forbidden: Only the property owner can accept or decline participation in an asset exchange."
       });
     }
 

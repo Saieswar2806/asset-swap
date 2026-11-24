@@ -9,6 +9,13 @@ describe("Asset Swap API Security Hardening & RBAC Audit Tests", () => {
   let ownerAToken = "";
   let ownerBToken = "";
 
+  async function getOwnerTokenForListing(listingId: string): Promise<string> {
+    const l = db.prepare("SELECT ownerId FROM listings WHERE id = ?").get(listingId) as { ownerId: string };
+    const u = db.prepare("SELECT email FROM users WHERE id = ?").get(l.ownerId) as { email: string };
+    const res = await request(app).post("/api/auth/login").send({ email: u.email, password: "Owner@123" });
+    return res.body.token;
+  }
+
   const ownerAId = "OWNER-001"; // Naveen Hegde
   const ownerBId = "OWNER-002"; // Sunil Kulkarni
 
@@ -404,6 +411,29 @@ describe("Asset Swap API Security Hardening & RBAC Audit Tests", () => {
       expect(unauthorizedVote.body.error).toContain("Forbidden");
     });
 
+    it("POST /api/workflow/respond forbids an Admin from substituting for an owner's consent", async () => {
+      const matchesRes = await request(app).get("/api/matches");
+      const match = matchesRes.body.data.find((m: { partyCount: number }) => m.partyCount === 2);
+      expect(match).toBeDefined();
+
+      await request(app)
+        .post("/api/workflow/propose")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ matchId: match.id });
+
+      // Admin attempts to vote on owner's property -> 403 Forbidden
+      const adminVote = await request(app)
+        .post("/api/workflow/respond")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          matchId: match.id,
+          listingId: match.listingIds[0],
+          decision: "accepted"
+        });
+      expect(adminVote.status).toBe(403);
+      expect(adminVote.body.error).toContain("Only the property owner can accept or decline");
+    });
+
     it("POST /api/workflow/respond rejects duplicate votes from the same participant", async () => {
       const matchesRes = await request(app).get("/api/matches");
       const match = matchesRes.body.data.find((m: { partyCount: number }) => m.partyCount === 2);
@@ -414,10 +444,12 @@ describe("Asset Swap API Security Hardening & RBAC Audit Tests", () => {
         .set("Authorization", `Bearer ${adminToken}`)
         .send({ matchId: match.id });
 
+      const token0 = await getOwnerTokenForListing(match.listingIds[0]);
+
       // First vote succeeds
       const vote1 = await request(app)
         .post("/api/workflow/respond")
-        .set("Authorization", `Bearer ${adminToken}`)
+        .set("Authorization", `Bearer ${token0}`)
         .send({
           matchId: match.id,
           listingId: match.listingIds[0],
@@ -428,7 +460,7 @@ describe("Asset Swap API Security Hardening & RBAC Audit Tests", () => {
       // Duplicate vote fails
       const vote2 = await request(app)
         .post("/api/workflow/respond")
-        .set("Authorization", `Bearer ${adminToken}`)
+        .set("Authorization", `Bearer ${token0}`)
         .send({
           matchId: match.id,
           listingId: match.listingIds[0],
@@ -449,10 +481,14 @@ describe("Asset Swap API Security Hardening & RBAC Audit Tests", () => {
         .set("Authorization", `Bearer ${adminToken}`)
         .send({ matchId: threePartyMatch.id });
 
+      const token0 = await getOwnerTokenForListing(threePartyMatch.listingIds[0]);
+      const token1 = await getOwnerTokenForListing(threePartyMatch.listingIds[1]);
+      const token2 = await getOwnerTokenForListing(threePartyMatch.listingIds[2]);
+
       // Participant 1 accepts -> stays proposed
       const resp1 = await request(app)
         .post("/api/workflow/respond")
-        .set("Authorization", `Bearer ${adminToken}`)
+        .set("Authorization", `Bearer ${token0}`)
         .send({
           matchId: threePartyMatch.id,
           listingId: threePartyMatch.listingIds[0],
@@ -463,7 +499,7 @@ describe("Asset Swap API Security Hardening & RBAC Audit Tests", () => {
       // Participant 2 accepts -> stays proposed
       const resp2 = await request(app)
         .post("/api/workflow/respond")
-        .set("Authorization", `Bearer ${adminToken}`)
+        .set("Authorization", `Bearer ${token1}`)
         .send({
           matchId: threePartyMatch.id,
           listingId: threePartyMatch.listingIds[1],
@@ -474,7 +510,7 @@ describe("Asset Swap API Security Hardening & RBAC Audit Tests", () => {
       // Participant 3 accepts -> becomes accepted!
       const resp3 = await request(app)
         .post("/api/workflow/respond")
-        .set("Authorization", `Bearer ${adminToken}`)
+        .set("Authorization", `Bearer ${token2}`)
         .send({
           matchId: threePartyMatch.id,
           listingId: threePartyMatch.listingIds[2],

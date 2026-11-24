@@ -68,7 +68,15 @@ export const ProposalsPage: React.FC = () => {
   const handleRespond = async (matchId: string, listingId: string, decision: "accepted" | "declined") => {
     try {
       const res = await api.respondToMatch(matchId, listingId, decision);
-      setActionFeedback({ id: matchId, message: res.message, type: "success" });
+      let feedbackMsg = res.message;
+      if (res.matchStatus === "accepted") {
+        feedbackMsg = "Exchange unanimously accepted by all parties! Escrow asset locks retained.";
+      } else if (res.matchStatus === "declined") {
+        feedbackMsg = "Proposal declined. All participant property locks have been released.";
+      } else if (decision === "accepted") {
+        feedbackMsg = "Your acceptance has been recorded. Waiting for remaining participants to respond.";
+      }
+      setActionFeedback({ id: matchId, message: feedbackMsg, type: "success" });
       await fetchProposals();
     } catch (err: any) {
       setActionFeedback({ id: matchId, message: err.message, type: "error" });
@@ -183,17 +191,28 @@ export const ProposalsPage: React.FC = () => {
               >
                 {/* Proposal Header */}
                 <div className="bg-slate-50 border-b border-slate-200 p-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2.5 flex-wrap">
                     {statusBadge(item.status)}
                     <span className="font-mono text-xs font-bold text-slate-600">#{item.id}</span>
                     <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-200 text-slate-700">
                       {item.partyCount === 2 ? "Direct 2-Party Swap" : "Circular 3-Way Exchange"}
                     </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded border flex items-center gap-1 ${
+                        item.status === "proposed" || item.status === "accepted"
+                          ? "bg-amber-50 text-amber-800 border-amber-200"
+                          : "bg-slate-100 text-slate-600 border-slate-200"
+                      }`}
+                    >
+                      {item.status === "proposed" || item.status === "accepted"
+                        ? "🔒 In Escrow Lock"
+                        : "🔓 Unlocked"}
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-slate-500">
-                      Updated: {new Date(item.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      Created: {new Date(item.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                     </span>
                     <Link
                       to={`/matches/${item.id}`}
@@ -207,6 +226,36 @@ export const ProposalsPage: React.FC = () => {
 
                 {/* Proposal Body */}
                 <div className="p-4 sm:p-6 space-y-4">
+                  {/* Action Required Callout Banner if user has pending response */}
+                  {hasPendingUserResponse && item.status === "proposed" && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                        <span>Action Required: Your consent is needed to approve this proposed exchange.</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => {
+                            const myP = item.participants.find((p) => p.ownerId === currentUser?.id);
+                            if (myP) handleRespond(item.id, myP.listingId, "accepted");
+                          }}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-2xs transition-colors flex items-center gap-1"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Accept Proposal
+                        </button>
+                        <button
+                          onClick={() => {
+                            const myP = item.participants.find((p) => p.ownerId === currentUser?.id);
+                            if (myP) handleRespond(item.id, myP.listingId, "declined");
+                          }}
+                          className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-xs shadow-2xs transition-colors flex items-center gap-1"
+                        >
+                          <XCircle className="w-3.5 h-3.5" /> Decline
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Feedback Banner */}
                   {actionFeedback && actionFeedback.id === item.id && (
                     <div
@@ -221,7 +270,7 @@ export const ProposalsPage: React.FC = () => {
                   )}
 
                   {/* Summary / Explanation */}
-                  <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/80 p-3 rounded-lg border border-slate-100">
+                  <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/80 p-3 rounded-lg border border-slate-100 font-medium">
                     <span className="font-bold text-slate-800">Exchange Cycle: </span>
                     {item.explanation}
                   </p>
@@ -242,7 +291,7 @@ export const ProposalsPage: React.FC = () => {
                           <div
                             key={p.listingId}
                             className={`px-4 py-3 text-xs grid grid-cols-12 gap-2 items-center ${
-                              isCurrentPersona ? "bg-blue-50/40" : "bg-white"
+                              isCurrentPersona ? "bg-blue-50/40 font-medium" : "bg-white"
                             }`}
                           >
                             <div className="col-span-4 sm:col-span-3">
@@ -285,36 +334,34 @@ export const ProposalsPage: React.FC = () => {
                             </div>
 
                             <div className="col-span-2 sm:col-span-3 flex items-center justify-end gap-2">
-                              {p.response === "accepted" ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  Accepted
-                                </span>
-                              ) : p.response === "declined" ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
-                                  <XCircle className="w-3.5 h-3.5" />
-                                  Declined
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                                  <Clock className="w-3.5 h-3.5" />
-                                  Pending
-                                </span>
-                              )}
+                              <span
+                                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded border ${
+                                  p.response === "accepted"
+                                    ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                                    : p.response === "declined"
+                                    ? "text-red-700 bg-red-50 border-red-200"
+                                    : "text-amber-700 bg-amber-50 border-amber-200"
+                                }`}
+                              >
+                                {p.response === "accepted" && <CheckCircle2 className="w-3.5 h-3.5" />}
+                                {p.response === "declined" && <XCircle className="w-3.5 h-3.5" />}
+                                {p.response === "pending" && <Clock className="w-3.5 h-3.5" />}
+                                {p.response === "pending" ? "Awaiting Decision" : p.response.toUpperCase()}
+                              </span>
 
-                              {/* Interactive Accept / Decline for this participant */}
-                              {item.status === "proposed" && p.response === "pending" && (
+                              {/* Interactive Accept / Decline strictly for the current owner */}
+                              {item.status === "proposed" && p.response === "pending" && isCurrentPersona && (
                                 <div className="flex items-center gap-1 ml-2">
                                   <button
                                     onClick={() => handleRespond(item.id, p.listingId, "accepted")}
-                                    className="p-1 px-2 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-xs"
-                                    title="Accept proposal for this property"
+                                    className="p-1 px-2.5 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md shadow-2xs"
+                                    title="Accept proposal for your property"
                                   >
                                     Accept
                                   </button>
                                   <button
                                     onClick={() => handleRespond(item.id, p.listingId, "declined")}
-                                    className="p-1 px-2 text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 rounded shadow-xs"
+                                    className="p-1 px-2.5 text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-md shadow-2xs"
                                     title="Decline proposal and release locks"
                                   >
                                     Decline

@@ -164,7 +164,28 @@ export const OwnerDashboardPage: React.FC = () => {
   const handleRespondProposal = async (matchId: string, listingId: string, decision: "accepted" | "declined") => {
     try {
       const res = await api.respondToMatch(matchId, listingId, decision);
-      setFeedback({ message: res.message, type: "success" });
+      let feedbackMsg = res.message;
+      if (res.matchStatus === "accepted") {
+        feedbackMsg = "Exchange unanimously accepted by all parties! Escrow asset locks retained.";
+      } else if (res.matchStatus === "declined") {
+        feedbackMsg = "Proposal declined. All participant property locks have been released.";
+      } else if (decision === "accepted") {
+        feedbackMsg = "Your acceptance has been recorded. Waiting for other participants to respond.";
+      }
+      setFeedback({ message: feedbackMsg, type: "success" });
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ message: err.message, type: "error" });
+    }
+  };
+
+  const handleProposeMatch = async (matchId: string) => {
+    try {
+      const res = await api.proposeMatch(matchId);
+      setFeedback({
+        message: res.message || "Exchange proposal submitted successfully. Participating properties are now locked in escrow awaiting responses.",
+        type: "success"
+      });
       await loadData();
     } catch (err: any) {
       setFeedback({ message: err.message, type: "error" });
@@ -266,7 +287,7 @@ export const OwnerDashboardPage: React.FC = () => {
                 ) : (
                   <div className="space-y-3">
                     {myMatches.slice(0, 2).map((m) => (
-                      <MatchCard key={m.id} match={m} />
+                      <MatchCard key={m.id} match={m} onPropose={handleProposeMatch} />
                     ))}
                   </div>
                 )}
@@ -579,7 +600,7 @@ export const OwnerDashboardPage: React.FC = () => {
             ) : (
               <div className="space-y-4">
                 {myMatches.map((m) => (
-                  <MatchCard key={m.id} match={m} />
+                  <MatchCard key={m.id} match={m} onPropose={handleProposeMatch} />
                 ))}
               </div>
             )}
@@ -593,9 +614,12 @@ export const OwnerDashboardPage: React.FC = () => {
               <div>
                 <h2 className="text-base font-bold text-slate-900">My Swap Proposals</h2>
                 <p className="text-xs text-slate-500">
-                  Vote on exchange proposals involving your properties. Unanimous acceptance retains locks; declining releases all assets back to the open pool.
+                  Participate in consensus voting on proposals involving your properties. Unanimous consent retains locks; declining releases all properties back to open discovery.
                 </p>
               </div>
+              <span className="text-xs font-bold px-3 py-1 bg-blue-50 text-blue-800 rounded-full border border-blue-200 self-start sm:self-auto">
+                {myProposals.length} Total Proposals
+              </span>
             </div>
 
             {myProposals.length === 0 ? (
@@ -603,78 +627,180 @@ export const OwnerDashboardPage: React.FC = () => {
                 You are not currently involved in any active proposals. Discover a match and propose an exchange to get started.
               </div>
             ) : (
-              <div className="space-y-4">
-                {myProposals.map((item) => (
-                  <div key={item.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-slate-700">#{item.id}</span>
-                        <span
-                          className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${
-                            item.status === "proposed"
-                              ? "bg-blue-100 text-blue-800"
-                              : item.status === "accepted"
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-red-100 text-red-800"
-                          }`}
+              <div className="space-y-5">
+                {myProposals.map((item) => {
+                  const myPart = item.participants?.find((p: any) => p.ownerId === currentUser?.id);
+                  const isPendingMyVote = item.status === "proposed" && myPart?.response === "pending";
+                  const isLocked = item.status === "proposed" || item.status === "accepted";
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`bg-white border rounded-2xl p-5 shadow-xs space-y-4 transition-all ${
+                        isPendingMyVote
+                          ? "border-amber-300 ring-2 ring-amber-400/20"
+                          : "border-slate-200"
+                      }`}
+                    >
+                      {/* Proposal Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className="font-mono text-xs font-bold text-slate-700">#{item.id}</span>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] uppercase border ${
+                              item.status === "proposed"
+                                ? "bg-blue-50 text-blue-800 border-blue-200"
+                                : item.status === "accepted"
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                : "bg-red-50 text-red-800 border-red-200"
+                            }`}
+                          >
+                            {item.status}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 ${
+                              isLocked
+                                ? "bg-amber-50 text-amber-800 border-amber-200"
+                                : "bg-slate-100 text-slate-600 border-slate-200"
+                            }`}
+                          >
+                            {isLocked ? "🔒 In Escrow Lock" : "🔓 Unlocked"}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            Created: {new Date(item.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                          </span>
+                        </div>
+
+                        <Link
+                          to={`/matches/${item.id}`}
+                          className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 self-start sm:self-auto"
                         >
-                          {item.status}
-                        </span>
+                          View Visual Flow →
+                        </Link>
                       </div>
-                      <Link to={`/matches/${item.id}`} className="text-xs font-bold text-blue-600 hover:text-blue-800">
-                        View Visual Flow →
-                      </Link>
-                    </div>
 
-                    <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      {item.explanation}
-                    </p>
+                      {/* Action Required Banner if vote pending */}
+                      {isPendingMyVote && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                            <span>Action Required: Your consent is requested for this proposed exchange.</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => handleRespondProposal(item.id, myPart.listingId, "accepted")}
+                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-2xs transition-colors flex items-center gap-1"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Accept Proposal
+                            </button>
+                            <button
+                              onClick={() => handleRespondProposal(item.id, myPart.listingId, "declined")}
+                              className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-xs shadow-2xs transition-colors flex items-center gap-1"
+                            >
+                              <XCircle className="w-3.5 h-3.5" /> Decline
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
-                    <div className="divide-y divide-slate-100">
-                      {item.participants.map((p: any) => {
-                        const isMe = p.ownerId === currentUser?.id;
-                        return (
-                          <div key={p.listingId} className={`py-2 flex items-center justify-between text-xs ${isMe ? "bg-blue-50/40 p-2 rounded-lg" : ""}`}>
-                            <div>
-                              <span className="font-bold text-slate-900">{p.ownerName}</span>
-                              {isMe && <span className="ml-1.5 text-[10px] bg-blue-600 text-white px-1.5 py-0.2 rounded font-bold">You</span>}
-                              <div className="text-[11px] text-slate-500">
-                                Gives Asset #{p.listingId} • Cash Boot: {p.action === "pay" ? `Pays ${formatCurrency(p.amount)}` : p.action === "receive" ? `Receives ${formatCurrency(p.amount)}` : "₹0 Pure Swap"}
-                              </div>
-                            </div>
+                      {/* Proposal Explanation */}
+                      <p className="text-xs text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-100 font-medium leading-relaxed">
+                        {item.explanation}
+                      </p>
 
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                                  p.response === "accepted" ? "bg-emerald-100 text-emerald-800" : p.response === "declined" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"
+                      {/* Participants Table */}
+                      <div className="space-y-2">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                          Participating Property Owners & Responses ({item.participants?.length || 0}):
+                        </span>
+
+                        <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden bg-slate-50/50">
+                          {item.participants?.map((p: any) => {
+                            const isMe = p.ownerId === currentUser?.id;
+                            const isPayer = p.action === "pay" || p.action === "pays";
+                            const isReceiver = p.action === "receive" || p.action === "receives";
+                            const bootDiff = p.cashDifference || p.amount || 0;
+
+                            return (
+                              <div
+                                key={p.listingId}
+                                className={`p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs ${
+                                  isMe ? "bg-blue-50/70 font-medium" : "bg-white"
                                 }`}
                               >
-                                {p.response}
-                              </span>
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-slate-900">{p.ownerName}</span>
+                                    {isMe && (
+                                      <span className="text-[10px] bg-blue-600 text-white px-1.5 py-0.2 rounded font-bold">
+                                        You
+                                      </span>
+                                    )}
+                                    <span className="text-slate-400 font-mono text-[11px]">#{p.listingId}</span>
+                                  </div>
 
-                              {isMe && item.status === "proposed" && p.response === "pending" && (
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={() => handleRespondProposal(item.id, p.listingId, "accepted")}
-                                    className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-bold text-[11px] hover:bg-emerald-700"
-                                  >
-                                    Accept
-                                  </button>
-                                  <button
-                                    onClick={() => handleRespondProposal(item.id, p.listingId, "declined")}
-                                    className="px-2.5 py-1 bg-red-600 text-white rounded-lg font-bold text-[11px] hover:bg-red-700"
-                                  >
-                                    Decline
-                                  </button>
+                                  <div className="text-[11px] text-slate-500 mt-0.5">
+                                    Transfers: <strong className="text-slate-700 capitalize">{p.givesPropertyType?.replace(/_/g, " ") || p.ownedProperty?.propertyType?.replace(/_/g, " ") || "Property"}</strong> • Value: {formatCurrency(p.givesValue || p.ownedProperty?.reviewedValue || 0)}
+                                  </div>
+
+                                  <div className="text-[11px] mt-0.5">
+                                    Cash Boot:{" "}
+                                    <strong
+                                      className={
+                                        isPayer
+                                          ? "text-amber-700"
+                                          : isReceiver
+                                          ? "text-emerald-700"
+                                          : "text-slate-600"
+                                      }
+                                    >
+                                      {isPayer
+                                        ? `Pays ${formatCurrency(bootDiff)}`
+                                        : isReceiver
+                                        ? `Receives ${formatCurrency(bootDiff)}`
+                                        : "₹0 Settled"}
+                                    </strong>
+                                  </div>
                                 </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
+
+                                <div className="flex items-center gap-2 self-start sm:self-auto">
+                                  <span
+                                    className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase border ${
+                                      p.response === "accepted"
+                                        ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                                        : p.response === "declined"
+                                        ? "bg-red-100 text-red-800 border-red-300"
+                                        : "bg-amber-100 text-amber-800 border-amber-300"
+                                    }`}
+                                  >
+                                    {p.response === "pending" ? "Awaiting Response" : p.response}
+                                  </span>
+
+                                  {isMe && item.status === "proposed" && p.response === "pending" && !isPendingMyVote && (
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={() => handleRespondProposal(item.id, p.listingId, "accepted")}
+                                        className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-bold text-[11px] hover:bg-emerald-700"
+                                      >
+                                        Accept
+                                      </button>
+                                      <button
+                                        onClick={() => handleRespondProposal(item.id, p.listingId, "declined")}
+                                        className="px-2.5 py-1 bg-red-600 text-white rounded-lg font-bold text-[11px] hover:bg-red-700"
+                                      >
+                                        Decline
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

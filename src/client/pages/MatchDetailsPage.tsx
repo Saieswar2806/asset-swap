@@ -20,6 +20,8 @@ import { api } from "../api.js";
 import type { Match, Listing } from "../types.js";
 import { FlowVisualizer } from "../components/FlowVisualizer.js";
 import { formatCurrency } from "../components/PropertyCard.js";
+import { useUser } from "../context/UserContext.js";
+import { ProposalConfirmModal } from "../components/ProposalConfirmModal.js";
 
 interface DetailedParticipant {
   listingId: string;
@@ -41,11 +43,13 @@ interface DetailedParticipant {
 
 export const MatchDetailsPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const { currentUser } = useUser();
 
   const [match, setMatch] = useState<(Match & { participants: DetailedParticipant[] }) | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const loadMatch = () => {
@@ -210,11 +214,11 @@ export const MatchDetailsPage: React.FC = () => {
 
           {match.status !== "proposed" && match.status !== "accepted" && (
             <button
-              onClick={handlePropose}
+              onClick={() => setShowConfirmModal(true)}
               disabled={actionLoading}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
             >
-              Initiate Exchange Proposal
+              Review & Propose Swap
             </button>
           )}
         </div>
@@ -235,10 +239,13 @@ export const MatchDetailsPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
           {match.boots.map((boot) => {
             const decision = match.responses?.[boot.listingId] || "pending";
+            const isMyListing = currentUser && currentUser.id === boot.ownerId;
             return (
               <div
                 key={boot.listingId}
-                className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col justify-between space-y-3"
+                className={`border rounded-xl p-4 flex flex-col justify-between space-y-3 ${
+                  isMyListing ? "bg-blue-50/40 border-blue-200" : "bg-slate-50 border-slate-200"
+                }`}
               >
                 <div>
                   <div className="flex justify-between items-start mb-1">
@@ -253,7 +260,14 @@ export const MatchDetailsPage: React.FC = () => {
                       {decision.toUpperCase()}
                     </span>
                   </div>
-                  <h4 className="font-bold text-slate-900 text-sm">{boot.ownerName}</h4>
+                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                    {boot.ownerName}
+                    {isMyListing && (
+                      <span className="text-[10px] bg-blue-600 text-white px-1.5 py-0.2 rounded font-bold">
+                        You
+                      </span>
+                    )}
+                  </h4>
                   <p className="text-xs text-slate-600 capitalize">
                     Giving: {boot.givesPropertyType.replace(/_/g, " ")} ({formatCurrency(boot.givesValue)})
                   </p>
@@ -263,21 +277,29 @@ export const MatchDetailsPage: React.FC = () => {
                 </div>
 
                 {match.status === "proposed" && decision === "pending" && (
-                  <div className="flex gap-2 pt-2 border-t border-slate-200/60">
-                    <button
-                      onClick={() => handleRespond(boot.listingId, "accepted")}
-                      disabled={actionLoading}
-                      className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-2xs transition-colors"
-                    >
-                      <Check className="w-3.5 h-3.5" /> Accept
-                    </button>
-                    <button
-                      onClick={() => handleRespond(boot.listingId, "declined")}
-                      disabled={actionLoading}
-                      className="flex-1 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-2xs transition-colors"
-                    >
-                      <X className="w-3.5 h-3.5" /> Decline
-                    </button>
+                  <div className="pt-2 border-t border-slate-200/60">
+                    {isMyListing ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleRespond(boot.listingId, "accepted")}
+                          disabled={actionLoading}
+                          className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-2xs transition-colors"
+                        >
+                          <Check className="w-3.5 h-3.5" /> Accept Swap
+                        </button>
+                        <button
+                          onClick={() => handleRespond(boot.listingId, "declined")}
+                          disabled={actionLoading}
+                          className="flex-1 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-2xs transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" /> Decline
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-slate-500 italic block text-center py-1">
+                        Awaiting decision from {boot.ownerName}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -285,6 +307,17 @@ export const MatchDetailsPage: React.FC = () => {
           })}
         </div>
       </div>
+
+      <ProposalConfirmModal
+        isOpen={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        match={match}
+        onConfirm={async () => {
+          await handlePropose();
+          setShowConfirmModal(false);
+        }}
+        isSubmitting={actionLoading}
+      />
 
       {/* Detailed Side-by-Side Participant Transfers */}
       <div className="space-y-4">

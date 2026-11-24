@@ -7,6 +7,13 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
   let adminToken = "";
   let ownerToken = "";
 
+  async function getListingOwnerToken(listingId: string): Promise<string> {
+    const l = db.prepare("SELECT ownerId FROM listings WHERE id = ?").get(listingId) as { ownerId: string };
+    const u = db.prepare("SELECT email FROM users WHERE id = ?").get(l.ownerId) as { email: string };
+    const login = await request(app).post("/api/auth/login").send({ email: u.email, password: "Owner@123" });
+    return login.body.token;
+  }
+
   beforeAll(async () => {
     const adminLogin = await request(app)
       .post("/api/auth/login")
@@ -169,10 +176,11 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
       .send({ matchId: match.id });
     expect(proposeRes.status).toBe(200);
 
-    // Participant 1 accepts
+    // Participant 1 accepts with their authenticated owner account
+    const token0 = await getListingOwnerToken(match.listingIds[0]);
     const resp1 = await request(app)
       .post("/api/workflow/respond")
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${token0}`)
       .send({
         matchId: match.id,
         listingId: match.listingIds[0],
@@ -181,10 +189,11 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
     expect(resp1.status).toBe(200);
     expect(resp1.body.matchStatus).toBe("proposed");
 
-    // Participant 2 accepts -> becomes accepted
+    // Participant 2 accepts with their authenticated owner account
+    const token1 = await getListingOwnerToken(match.listingIds[1]);
     const resp2 = await request(app)
       .post("/api/workflow/respond")
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${token1}`)
       .send({
         matchId: match.id,
         listingId: match.listingIds[1],
@@ -295,10 +304,11 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
       .send({ matchId: unlockedMatch.id });
     expect(proposeRes.status).toBe(200);
 
-    // Decline by participant 1
+    // Decline by participant 1 with their authenticated owner account
+    const token0 = await getListingOwnerToken(unlockedMatch.listingIds[0]);
     const declineRes = await request(app)
       .post("/api/workflow/respond")
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${token0}`)
       .send({
         matchId: unlockedMatch.id,
         listingId: unlockedMatch.listingIds[0],
