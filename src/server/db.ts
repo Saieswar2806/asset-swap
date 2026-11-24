@@ -1,0 +1,440 @@
+import { createRequire } from "node:module";
+import path from "node:path";
+import fs from "node:fs";
+import { seedListings } from "../data/listings.js";
+import type { Listing, PropertyType, AreaUnit, VerificationStatus, Match, Boot, ExchangeLeg } from "../types.js";
+
+const require = createRequire(import.meta.url);
+const { DatabaseSync } = require("node:sqlite");
+
+// Ensure data directory exists
+const dbPath = path.resolve(process.cwd(), "asset_swap.db");
+export const db = new DatabaseSync(dbPath);
+
+// Enable Foreign Keys and WAL Mode for performance
+db.exec("PRAGMA foreign_keys = ON;");
+
+export function initDatabase(): void {
+  // 1. Users Table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('user', 'admin')),
+      phone TEXT,
+      createdAt TEXT NOT NULL
+    );
+  `);
+
+  // 2. Listings Table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS listings (
+      id TEXT PRIMARY KEY,
+      ownerId TEXT NOT NULL REFERENCES users(id),
+      ownerName TEXT NOT NULL,
+      title TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'real_estate',
+      propertyType TEXT NOT NULL,
+      district TEXT NOT NULL,
+      taluk TEXT,
+      locality TEXT NOT NULL,
+      pincode TEXT,
+      latitude REAL,
+      longitude REAL,
+      area REAL NOT NULL,
+      areaUnit TEXT NOT NULL,
+      ownerDeclaredValue REAL NOT NULL,
+      reviewedValue REAL,
+      status TEXT NOT NULL CHECK(status IN ('draft', 'submitted', 'under_review', 'reviewed', 'rejected')),
+      rejectionReason TEXT,
+      locked INTEGER NOT NULL DEFAULT 0,
+      khataType TEXT,
+      surveyNumber TEXT,
+      conversionStatus TEXT,
+      description TEXT,
+      imageUrl TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+  `);
+
+  // 3. Exchange Requirements Table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS exchange_requirements (
+      id TEXT PRIMARY KEY,
+      listingId TEXT UNIQUE NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+      desiredPropertyTypes TEXT NOT NULL,
+      preferredDistricts TEXT NOT NULL,
+      preferredLocalities TEXT NOT NULL,
+      minArea REAL,
+      minAreaUnit TEXT,
+      maxCashToPay REAL,
+      maxCashToReceive REAL
+    );
+  `);
+
+  // 4. Property Reviews (Admin Audit Trail)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS property_reviews (
+      id TEXT PRIMARY KEY,
+      listingId TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+      reviewerId TEXT NOT NULL REFERENCES users(id),
+      reviewerName TEXT NOT NULL,
+      reviewedValue REAL NOT NULL,
+      internalNotes TEXT,
+      action TEXT NOT NULL CHECK(action IN ('approved', 'rejected')),
+      createdAt TEXT NOT NULL
+    );
+  `);
+
+  // 5. Matches Table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS matches (
+      id TEXT PRIMARY KEY,
+      matchType TEXT NOT NULL,
+      partyCount INTEGER NOT NULL,
+      cycle TEXT NOT NULL,
+      listingIds TEXT NOT NULL,
+      totalAbsoluteBoot REAL NOT NULL,
+      locationScoreKm REAL NOT NULL,
+      matchScore INTEGER NOT NULL,
+      verificationStatus TEXT NOT NULL DEFAULT 'reviewed',
+      status TEXT NOT NULL CHECK(status IN ('proposed', 'accepted', 'declined', 'expired')),
+      explanation TEXT NOT NULL,
+      reasons TEXT NOT NULL,
+      exchangeLegs TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+  `);
+
+  // 6. Match Participants Table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS match_participants (
+      id TEXT PRIMARY KEY,
+      matchId TEXT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+      listingId TEXT NOT NULL REFERENCES listings(id),
+      ownerId TEXT NOT NULL,
+      ownerName TEXT NOT NULL,
+      givesAssetId TEXT NOT NULL,
+      givesPropertyType TEXT NOT NULL,
+      givesValue REAL NOT NULL,
+      receivesAssetId TEXT NOT NULL,
+      receivesPropertyType TEXT NOT NULL,
+      receivesValue REAL NOT NULL,
+      amount REAL NOT NULL,
+      action TEXT NOT NULL,
+      cashDifference REAL NOT NULL,
+      explanation TEXT NOT NULL
+    );
+  `);
+
+  // 7. Match Responses Table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS match_responses (
+      id TEXT PRIMARY KEY,
+      matchId TEXT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+      listingId TEXT NOT NULL,
+      ownerId TEXT NOT NULL,
+      decision TEXT NOT NULL CHECK(decision IN ('pending', 'accepted', 'declined')),
+      respondedAt TEXT
+    );
+  `);
+
+  // 8. Audit Logs Table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      entityType TEXT NOT NULL,
+      entityId TEXT NOT NULL,
+      action TEXT NOT NULL,
+      details TEXT,
+      performedBy TEXT NOT NULL,
+      timestamp TEXT NOT NULL
+    );
+  `);
+
+  // Check if we need to seed
+  const countRow = db.prepare("SELECT COUNT(*) as count FROM listings").get() as { count: number };
+  if (countRow.count === 0) {
+    seedDatabase();
+  }
+}
+
+function generatePropertyTitle(p: Listing): string {
+  const typeMap: Record<string, string> = {
+    agricultural_land: "Fertile Agricultural Land",
+    plot_site: "Prime Residential Site",
+    apartment: "Modern Premium Apartment",
+    independent_house: "Spacious Independent Villa",
+    farmhouse: "Tranquil Country Farmhouse",
+    commercial: "Prime Commercial Building"
+  };
+  const titlePrefix = typeMap[p.propertyType] || "Exclusive Property";
+  return `${titlePrefix} in ${p.locality}, ${p.district}`;
+}
+
+function getPropertyImage(type: PropertyType, index: number): string {
+  const images: Record<PropertyType, string[]> = {
+    agricultural_land: [
+      "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=800&auto=format&fit=crop&q=60"
+    ],
+    plot_site: [
+      "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1592595896551-12b371d546d5?w=800&auto=format&fit=crop&q=60"
+    ],
+    apartment: [
+      "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800&auto=format&fit=crop&q=60"
+    ],
+    independent_house: [
+      "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=800&auto=format&fit=crop&q=60"
+    ],
+    farmhouse: [
+      "https://images.unsplash.com/photo-1518780664697-55e3ad937233?w=800&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&auto=format&fit=crop&q=60"
+    ],
+    commercial: [
+      "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&auto=format&fit=crop&q=60"
+    ]
+  };
+  const list = images[type] || images.apartment;
+  return list[index % list.length];
+}
+
+export function seedDatabase(): void {
+  console.log("Seeding SQLite database with 112+ Karnataka listings...");
+
+  // Seed Admin user
+  const insertUser = db.prepare(`
+    INSERT OR IGNORE INTO users (id, name, email, role, phone, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  insertUser.run(
+    "admin-001",
+    "Kavitha Murthy (Broker Review Specialist)",
+    "kavitha.murthy@asset-swap.local",
+    "admin",
+    "+91 98450 11223",
+    new Date().toISOString()
+  );
+
+  const insertListing = db.prepare(`
+    INSERT INTO listings (
+      id, ownerId, ownerName, title, category, propertyType,
+      district, taluk, locality, pincode, latitude, longitude,
+      area, areaUnit, ownerDeclaredValue, reviewedValue, status,
+      rejectionReason, locked, khataType, surveyNumber, conversionStatus,
+      description, imageUrl, createdAt, updatedAt
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?
+    )
+  `);
+
+  const insertRequirement = db.prepare(`
+    INSERT INTO exchange_requirements (
+      id, listingId, desiredPropertyTypes, preferredDistricts,
+      preferredLocalities, minArea, minAreaUnit, maxCashToPay, maxCashToReceive
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  let idx = 0;
+  for (const item of seedListings) {
+    idx++;
+    const ownerId = item.ownerId ?? `OWNER-${String(idx).padStart(3, "0")}`;
+    const email = `${item.ownerName.toLowerCase().replace(/[^a-z]/g, "")}@fictional-demo.local`;
+
+    // Ensure user exists
+    insertUser.run(
+      ownerId,
+      item.ownerName,
+      email,
+      "user",
+      `+91 98${String(10000000 + idx).slice(0, 8)}`,
+      new Date().toISOString()
+    );
+
+    const title = generatePropertyTitle(item);
+    const imageUrl = getPropertyImage(item.propertyType, idx);
+    const now = new Date().toISOString();
+
+    const khataType = item.propertyType === "agricultural_land" ? "Pahani / RTC" : "A-Khata (BBMP/Local Authority)";
+    const surveyNumber = `Sy. No. ${100 + (idx % 150)}/${(idx % 4) + 1}`;
+    const conversionStatus = item.propertyType === "agricultural_land" ? "Agricultural" : "DC Converted / Residential Approval";
+    const description = `Well-maintained ${item.propertyType.replace(/_/g, " ")} with clear title documents, verified road access, and utility connections. Ideal for equitable asset exchange.`;
+
+    const rejectionReason = item.status === "rejected" ? "Valuation discrepancy: Declared value differs significantly from prevailing sub-registrar guidance value." : null;
+
+    insertListing.run(
+      item.id,
+      ownerId,
+      item.ownerName,
+      title,
+      item.category ?? "real_estate",
+      item.propertyType,
+      item.district,
+      item.locality,
+      item.locality,
+      "560001",
+      item.latitude ?? null,
+      item.longitude ?? null,
+      item.area,
+      item.areaUnit,
+      item.ownerDeclaredValue,
+      item.reviewedValue ?? null,
+      item.status,
+      rejectionReason,
+      item.locked ? 1 : 0,
+      khataType,
+      surveyNumber,
+      conversionStatus,
+      description,
+      imageUrl,
+      now,
+      now
+    );
+
+    const preferredDistricts = [item.district];
+    const preferredLocalities = item.wants?.preferredLocations ?? [item.locality];
+
+    insertRequirement.run(
+      `req-${item.id}`,
+      item.id,
+      JSON.stringify(item.wants?.propertyTypes ?? []),
+      JSON.stringify(preferredDistricts),
+      JSON.stringify(preferredLocalities),
+      item.wants?.minArea ?? null,
+      item.wants?.minAreaUnit ?? "sq_ft",
+      item.wants?.maxCashToPay ?? 5000000,
+      item.wants?.maxCashToReceive ?? 5000000
+    );
+  }
+
+  console.log(`Successfully seeded ${seedListings.length} listings into database.`);
+}
+
+export interface DbListingRow {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  title: string;
+  category: string;
+  propertyType: PropertyType;
+  district: string;
+  taluk: string | null;
+  locality: string;
+  pincode: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  area: number;
+  areaUnit: AreaUnit;
+  ownerDeclaredValue: number;
+  reviewedValue: number | null;
+  status: VerificationStatus;
+  rejectionReason: string | null;
+  locked: number;
+  khataType: string | null;
+  surveyNumber: string | null;
+  conversionStatus: string | null;
+  description: string | null;
+  imageUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  // joined from exchange_requirements
+  desiredPropertyTypes: string | null;
+  preferredDistricts: string | null;
+  preferredLocalities: string | null;
+  minArea: number | null;
+  minAreaUnit: AreaUnit | null;
+  maxCashToPay: number | null;
+  maxCashToReceive: number | null;
+}
+
+export function rowToListing(row: DbListingRow): Listing {
+  let propertyTypes: PropertyType[] = [];
+  try {
+    propertyTypes = row.desiredPropertyTypes ? JSON.parse(row.desiredPropertyTypes) : [];
+  } catch {
+    propertyTypes = [];
+  }
+
+  let preferredLocations: string[] = [];
+  try {
+    const locs = row.preferredLocalities ? JSON.parse(row.preferredLocalities) : [];
+    const dists = row.preferredDistricts ? JSON.parse(row.preferredDistricts) : [];
+    preferredLocations = [...new Set([...locs, ...dists])];
+  } catch {
+    preferredLocations = [];
+  }
+
+  return {
+    id: row.id,
+    ownerId: row.ownerId,
+    ownerName: row.ownerName,
+    category: "real_estate",
+    propertyType: row.propertyType,
+    district: row.district,
+    locality: row.locality,
+    latitude: row.latitude ?? undefined,
+    longitude: row.longitude ?? undefined,
+    area: row.area,
+    areaUnit: row.areaUnit,
+    ownerDeclaredValue: row.ownerDeclaredValue,
+    reviewedValue: row.reviewedValue ?? undefined,
+    status: row.status,
+    locked: row.locked === 1,
+    wants: {
+      propertyTypes,
+      preferredLocations,
+      minArea: row.minArea ?? undefined,
+      minAreaUnit: row.minAreaUnit ?? undefined,
+      maxCashToPay: row.maxCashToPay ?? undefined,
+      maxCashToReceive: row.maxCashToReceive ?? undefined
+    },
+    metadata: {
+      title: row.title,
+      khataType: row.khataType,
+      surveyNumber: row.surveyNumber,
+      conversionStatus: row.conversionStatus,
+      description: row.description,
+      imageUrl: row.imageUrl,
+      rejectionReason: row.rejectionReason,
+      taluk: row.taluk,
+      pincode: row.pincode
+    }
+  };
+}
+
+export function getAllDbListings(): Listing[] {
+  const query = `
+    SELECT l.*, 
+           r.desiredPropertyTypes, r.preferredDistricts, r.preferredLocalities,
+           r.minArea, r.minAreaUnit, r.maxCashToPay, r.maxCashToReceive
+    FROM listings l
+    LEFT JOIN exchange_requirements r ON l.id = r.listingId
+  `;
+  const rows = db.prepare(query).all() as unknown as DbListingRow[];
+  return rows.map(rowToListing);
+}
+
+export function getDbListingById(id: string): Listing | null {
+  const query = `
+    SELECT l.*, 
+           r.desiredPropertyTypes, r.preferredDistricts, r.preferredLocalities,
+           r.minArea, r.minAreaUnit, r.maxCashToPay, r.maxCashToReceive
+    FROM listings l
+    LEFT JOIN exchange_requirements r ON l.id = r.listingId
+    WHERE l.id = ?
+  `;
+  const row = db.prepare(query).get(id) as unknown as DbListingRow | undefined;
+  return row ? rowToListing(row) : null;
+}
