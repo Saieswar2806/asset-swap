@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ArrowLeftRight, Building2, UserCircle2, ShieldCheck, PlusCircle, LayoutDashboard, Sparkles, AlertCircle } from "lucide-react";
+import { ArrowLeftRight, Building2, UserCircle2, ShieldCheck, PlusCircle, LayoutDashboard, Sparkles, Activity } from "lucide-react";
 import { useUser } from "../context/UserContext.js";
 import { api } from "../api.js";
 
@@ -16,10 +16,11 @@ export const Navbar: React.FC = () => {
   }, [location.pathname]);
 
   const navLinks = [
-    { to: "/", label: "Dashboard", icon: LayoutDashboard },
-    { to: "/matches", label: "Find Exchanges", icon: Sparkles },
-    { to: "/register", label: "Register Property", icon: PlusCircle },
+    { to: "/", label: "Overview", icon: LayoutDashboard },
     { to: "/my-properties", label: "My Properties", icon: Building2 },
+    { to: "/matches", label: "Explore Matches", icon: Sparkles },
+    { to: "/proposals", label: "Swap Proposals", icon: ArrowLeftRight },
+    { to: "/activity", label: "Activity", icon: Activity },
     {
       to: "/admin",
       label: "Admin Review",
@@ -74,8 +75,16 @@ export const Navbar: React.FC = () => {
             })}
           </nav>
 
-          {/* User Persona Switcher */}
+          {/* User Persona Switcher & Add Property Action */}
           <div className="flex items-center gap-3">
+            <Link
+              to="/register"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-xs transition-colors"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>+ Add Property</span>
+            </Link>
+
             <div className="relative flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
               <UserCircle2 className="w-4 h-4 text-slate-500" />
               <div className="text-left hidden sm:block">

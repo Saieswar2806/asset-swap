@@ -122,5 +122,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ matchId })
     });
+  },
+
+  // Proposals & Activity
+  getProposals: async (params?: { status?: string; ownerId?: string }): Promise<any[]> => {
+    const query = new URLSearchParams();
+    if (params?.status) query.set("status", params.status);
+    if (params?.ownerId) query.set("ownerId", params.ownerId);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    const res = await fetchJson<ApiResponse<any[]>>(`/proposals${qs}`);
+    return res.data || [];
+  },
+
+  getActivityLogs: async (params?: { entityType?: string; limit?: number }): Promise<any[]> => {
+    const query = new URLSearchParams();
+    if (params?.entityType) query.set("entityType", params.entityType);
+    if (params?.limit) query.set("limit", String(params.limit));
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    const res = await fetchJson<ApiResponse<any[]>>(`/activity${qs}`);
+    return res.data || [];
   }
 };

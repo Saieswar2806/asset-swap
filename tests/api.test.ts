@@ -143,4 +143,141 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
     expect(resp2.status).toBe(200);
     expect(resp2.body.matchStatus).toBe("accepted");
   });
+
+  it("Admin Review Panel: Listing rejection records reason and prevents matching", async () => {
+    // 1. Submit property
+    const subRes = await request(app).post("/api/listings").send({
+      title: "Substandard Farmland with Title Issues",
+      propertyType: "agricultural_land",
+      district: "Mandya",
+      locality: "Maddur",
+      area: 2,
+      areaUnit: "acres",
+      ownerDeclaredValue: 15000000,
+      wants: { propertyTypes: ["farmhouse"] }
+    });
+    const listingId = subRes.body.data.id;
+
+    // 2. Reject property
+    const rejRes = await request(app).post(`/api/admin/listings/${listingId}/review`).send({
+      action: "reject",
+      rejectionReason: "Title encumbrance found during preliminary legal verification."
+    });
+    expect(rejRes.status).toBe(200);
+    expect(rejRes.body.data.status).toBe("rejected");
+    expect(rejRes.body.data.metadata?.rejectionReason).toContain("Title encumbrance");
+  });
+
+  it("Matching engine strictly processes only approved/reviewed listings", async () => {
+    // Submit an unreviewed listing
+    const subRes = await request(app).post("/api/listings").send({
+      title: "Unreviewed Luxury Apartment",
+      propertyType: "apartment",
+      district: "Bengaluru",
+      locality: "Whitefield",
+      area: 1800,
+      areaUnit: "sq_ft",
+      ownerDeclaredValue: 12000000,
+      wants: { propertyTypes: ["plot_site"] }
+    });
+    const unapprovedId = subRes.body.data.id;
+
+    // Get matches
+    const matchesRes = await request(app).get("/api/matches");
+    const matchingListingIds = matchesRes.body.data.flatMap((m: { listingIds: string[] }) => m.listingIds);
+    expect(matchingListingIds).not.toContain(unapprovedId);
+  });
+
+  it("Validates 2-party and 3-party transfer directions and cash boot conservation (sum = 0)", async () => {
+    const matchesRes = await request(app).get("/api/matches");
+    const twoParty = matchesRes.body.data.find((m: { partyCount: number }) => m.partyCount === 2);
+    const threeParty = matchesRes.body.data.find((m: { partyCount: number }) => m.partyCount === 3);
+
+    expect(twoParty).toBeDefined();
+    expect(threeParty).toBeDefined();
+
+    // Verify 2-party transfer directions: A gives to B, B gives to A
+    const leg0_2p = twoParty.exchangeLegs[0];
+    const leg1_2p = twoParty.exchangeLegs[1];
+    expect(leg0_2p.fromListingId).toBe(twoParty.cycle[0]);
+    expect(leg0_2p.toListingId).toBe(twoParty.cycle[1]);
+    expect(leg1_2p.fromListingId).toBe(twoParty.cycle[1]);
+    expect(leg1_2p.toListingId).toBe(twoParty.cycle[0]);
+
+    // Verify 3-party transfer directions: A gives to C, B gives to A, C gives to B
+    const [legA, legB, legC] = threeParty.exchangeLegs;
+    expect(legA.fromListingId).toBe(threeParty.cycle[0]);
+    expect(legA.toListingId).toBe(threeParty.cycle[2]);
+    expect(legB.fromListingId).toBe(threeParty.cycle[1]);
+    expect(legB.toListingId).toBe(threeParty.cycle[0]);
+    expect(legC.fromListingId).toBe(threeParty.cycle[2]);
+    expect(legC.toListingId).toBe(threeParty.cycle[1]);
+
+    // Verify Cash Boot Conservation: sum of signed amounts == 0
+    const sumBoot2p = twoParty.boots.reduce((acc: number, b: { amount: number }) => acc + b.amount, 0);
+    expect(Math.abs(sumBoot2p)).toBeLessThanOrEqual(0.01);
+
+    const sumBoot3p = threeParty.boots.reduce((acc: number, b: { amount: number }) => acc + b.amount, 0);
+    expect(Math.abs(sumBoot3p)).toBeLessThanOrEqual(0.01);
+  });
+
+  it("Workflow: Declining proposal releases all participant asset locks immediately", async () => {
+    const matchesRes = await request(app).get("/api/matches");
+    // Find an unlocked match
+    const unlockedMatch = matchesRes.body.data.find((m: { listingIds: string[] }) =>
+      m.listingIds.length === 2
+    );
+    expect(unlockedMatch).toBeDefined();
+
+    // Propose
+    const proposeRes = await request(app).post("/api/workflow/propose").send({ matchId: unlockedMatch.id });
+    expect(proposeRes.status).toBe(200);
+
+    // Decline by participant 1
+    const declineRes = await request(app).post("/api/workflow/respond").send({
+      matchId: unlockedMatch.id,
+      listingId: unlockedMatch.listingIds[0],
+      decision: "declined"
+    });
+    expect(declineRes.status).toBe(200);
+    expect(declineRes.body.matchStatus).toBe("declined");
+
+    // Verify listings unlocked
+    const listing1 = await request(app).get(`/api/listings/${unlockedMatch.listingIds[0]}`);
+    const listing2 = await request(app).get(`/api/listings/${unlockedMatch.listingIds[1]}`);
+    expect(listing1.body.data.locked).toBe(false);
+    expect(listing2.body.data.locked).toBe(false);
+  });
+
+  it("Workflow: Expiration releases all asset locks", async () => {
+    const matchesRes = await request(app).get("/api/matches");
+    const match = matchesRes.body.data[1];
+    expect(match).toBeDefined();
+
+    // Propose
+    await request(app).post("/api/workflow/propose").send({ matchId: match.id });
+
+    // Expire
+    const expRes = await request(app).post("/api/workflow/expire").send({ matchId: match.id });
+    expect(expRes.status).toBe(200);
+    expect(expRes.body.matchStatus).toBe("expired");
+
+    // Verify unlocked
+    for (const lid of match.listingIds) {
+      const res = await request(app).get(`/api/listings/${lid}`);
+      expect(res.body.data.locked).toBe(false);
+    }
+  });
+
+  it("GET /api/proposals and GET /api/activity return populated records", async () => {
+    const propRes = await request(app).get("/api/proposals");
+    expect(propRes.status).toBe(200);
+    expect(propRes.body.success).toBe(true);
+    expect(propRes.body.data.length).toBeGreaterThan(0);
+
+    const actRes = await request(app).get("/api/activity");
+    expect(actRes.status).toBe(200);
+    expect(actRes.body.success).toBe(true);
+    expect(actRes.body.data.length).toBeGreaterThan(0);
+  });
 });

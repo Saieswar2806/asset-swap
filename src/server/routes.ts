@@ -851,3 +851,109 @@ apiRouter.post("/workflow/expire", (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: message });
   }
 });
+
+// ==========================================
+// 7. Proposals List & Audit Activity
+// ==========================================
+apiRouter.get("/proposals", (req: Request, res: Response) => {
+  try {
+    const { status, ownerId } = req.query;
+    let query = "SELECT * FROM matches WHERE 1=1";
+    const params: unknown[] = [];
+    if (status && typeof status === "string" && status !== "all") {
+      query += " AND status = ?";
+      params.push(status);
+    }
+    query += " ORDER BY updatedAt DESC";
+
+    const matchesRows = db.prepare(query).all(...params) as Array<{
+      id: string;
+      matchType: string;
+      partyCount: number;
+      cycle: string;
+      listingIds: string;
+      totalAbsoluteBoot: number;
+      locationScoreKm: number;
+      matchScore: number;
+      status: string;
+      explanation: string;
+      reasons: string;
+      exchangeLegs: string;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+
+    const proposals = matchesRows.map((m) => {
+      const listingIds = JSON.parse(m.listingIds) as string[];
+      const responsesRows = db.prepare("SELECT listingId, decision, respondedAt FROM match_responses WHERE matchId = ?").all(m.id) as Array<{
+        listingId: string;
+        decision: "pending" | "accepted" | "declined";
+        respondedAt: string | null;
+      }>;
+      const participantsRows = db.prepare("SELECT * FROM match_participants WHERE matchId = ?").all(m.id) as any[];
+
+      const participants = participantsRows.map((p) => {
+        const listing = getDbListingById(p.listingId);
+        const resp = responsesRows.find((r) => r.listingId === p.listingId);
+        return {
+          ...p,
+          response: resp ? resp.decision : "pending",
+          respondedAt: resp?.respondedAt || null,
+          ownedProperty: listing
+        };
+      });
+
+      return {
+        id: m.id,
+        matchType: m.matchType,
+        partyCount: m.partyCount,
+        cycle: JSON.parse(m.cycle),
+        listingIds,
+        totalAbsoluteBoot: m.totalAbsoluteBoot,
+        locationScoreKm: m.locationScoreKm,
+        matchScore: m.matchScore,
+        status: m.status,
+        explanation: m.explanation,
+        reasons: JSON.parse(m.reasons),
+        exchangeLegs: JSON.parse(m.exchangeLegs),
+        createdAt: m.createdAt,
+        updatedAt: m.updatedAt,
+        participants
+      };
+    });
+
+    let filtered = proposals;
+    if (ownerId && typeof ownerId === "string") {
+      filtered = proposals.filter((p) => p.participants.some((part: any) => part.ownerId === ownerId));
+    }
+
+    res.json({ success: true, count: filtered.length, data: filtered });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+apiRouter.get("/activity", (req: Request, res: Response) => {
+  try {
+    const { entityType, limit } = req.query;
+    let query = "SELECT * FROM audit_logs WHERE 1=1";
+    const params: unknown[] = [];
+    if (entityType && typeof entityType === "string" && entityType !== "all") {
+      query += " AND entityType = ?";
+      params.push(entityType);
+    }
+    query += " ORDER BY timestamp DESC";
+    if (limit) {
+      query += ` LIMIT ${Number(limit)}`;
+    } else {
+      query += " LIMIT 50";
+    }
+
+    const rows = db.prepare(query).all(...params);
+    res.json({ success: true, count: rows.length, data: rows });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});

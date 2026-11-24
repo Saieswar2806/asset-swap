@@ -82,6 +82,13 @@ The platform is designed as a modern, decoupled full-stack TypeScript applicatio
   - **Participant Consensus**: Real-time simulation of individual participant voting (Accept / Decline).
   - **Consensus Resolution**: Unanimous acceptance retains locks for legal conveyancing; any decline or proposal expiration automatically releases all locks back to the open pool.
 
+### 7. Swap Proposals Dashboard (`/proposals`)
+- **Consensus Voting Queue**: Displays all active, accepted, declined, and expired proposals across the platform.
+- **Participant Ledger & Live Actions**: Filter proposals by state, inspect each participant's vote status (Pending, Accepted, Declined), and execute Accept, Decline, or Expiration actions directly with real-time asset lock synchronization.
+
+### 8. Platform Activity & Audit Trail (`/activity`)
+- **Persistent Event Stream**: Audit logging stored in SQLite tracking all platform lifecycle events: new property submissions, broker valuation assessments, approvals, rejections, proposal creation, individual votes, and lock releases.
+
 ---
 
 ## Core Matching Algorithm & Mathematical Model
@@ -173,7 +180,7 @@ npm run typecheck
 # Run unit & SQLite database tests (22 tests)
 npm test
 
-# Run API integration tests (8 tests)
+# Run API integration tests (14 tests)
 npm run test:api
 ```
 

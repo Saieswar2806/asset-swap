@@ -86,9 +86,9 @@ export const MyPropertiesPage: React.FC = () => {
       <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
         {[
           { id: "all", label: "All Properties", count: listings.length },
-          { id: "reviewed", label: "Broker-Reviewed", count: listings.filter((l) => l.status === "reviewed").length },
-          { id: "submitted", label: "Awaiting Review", count: listings.filter((l) => l.status === "submitted").length },
-          { id: "locked", label: "Locked in Escrow", count: listings.filter((l) => l.locked).length },
+          { id: "reviewed", label: "Approved", count: listings.filter((l) => l.status === "reviewed").length },
+          { id: "submitted", label: "Under Review", count: listings.filter((l) => l.status === "submitted" || l.status === "under_review").length },
+          { id: "locked", label: "Locked", count: listings.filter((l) => l.locked).length },
           { id: "rejected", label: "Rejected", count: listings.filter((l) => l.status === "rejected").length }
         ].map((tab) => (
           <button

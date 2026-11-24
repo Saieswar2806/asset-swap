@@ -24,9 +24,9 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ listing, onSelect, s
   const imageUrl = (meta.imageUrl as string) || "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&auto=format&fit=crop&q=60";
 
   const statusBadges: Record<string, { bg: string; text: string; icon: React.FC<{ className?: string }> }> = {
-    reviewed: { bg: "bg-emerald-50 border-emerald-200 text-emerald-700", text: "Broker-Reviewed", icon: CheckCircle2 },
-    submitted: { bg: "bg-blue-50 border-blue-200 text-blue-700", text: "Submitted (Awaiting Broker)", icon: Clock },
-    under_review: { bg: "bg-amber-50 border-amber-200 text-amber-700", text: "Under Broker Review", icon: Clock },
+    reviewed: { bg: "bg-emerald-50 border-emerald-200 text-emerald-700", text: "Approved", icon: CheckCircle2 },
+    submitted: { bg: "bg-blue-50 border-blue-200 text-blue-700", text: "Under Review", icon: Clock },
+    under_review: { bg: "bg-amber-50 border-amber-200 text-amber-700", text: "Under Review", icon: Clock },
     rejected: { bg: "bg-red-50 border-red-200 text-red-700", text: "Rejected", icon: XCircle },
     draft: { bg: "bg-slate-50 border-slate-200 text-slate-600", text: "Draft", icon: FileText }
   };
