@@ -8,8 +8,13 @@ import type { Listing, PropertyType, AreaUnit, VerificationStatus, Match, Boot, 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite");
 
-// Ensure data directory exists
-const dbPath = path.resolve(process.cwd(), "asset_swap.db");
+// Ensure data directory exists and configure database path
+const rawDbPath = process.env.DATABASE_PATH || "asset_swap.db";
+const dbPath = path.isAbsolute(rawDbPath) ? rawDbPath : path.resolve(process.cwd(), rawDbPath);
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
 export const db = new DatabaseSync(dbPath);
 
 // Enable Foreign Keys, WAL Mode, and Busy Timeout for concurrency
@@ -224,12 +229,15 @@ export function initDatabase(): void {
     );
   `);
 
-  // Check if we need to seed demo auth users or listings
-  ensureDemoAuthUsers();
-
-  const countRow = db.prepare("SELECT COUNT(*) as count FROM listings").get() as { count: number };
-  if (countRow.count === 0) {
-    seedDatabase();
+  // Handle environment-based initialization
+  if (process.env.NODE_ENV === "production") {
+    bootstrapProductionAdmin();
+  } else {
+    ensureDemoAuthUsers();
+    const countRow = db.prepare("SELECT COUNT(*) as count FROM listings").get() as { count: number };
+    if (countRow.count === 0) {
+      seedDatabase();
+    }
   }
 }
 
@@ -277,9 +285,39 @@ function getPropertyImage(type: PropertyType, index: number): string {
   return list[index % list.length];
 }
 
+export function bootstrapProductionAdmin(): void {
+  const adminRow = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get() as { count: number };
+  if (adminRow.count === 0) {
+    const email = process.env.ADMIN_BOOTSTRAP_EMAIL || "admin@asset-swap.local";
+    const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || "Admin@123";
+    const now = new Date().toISOString();
+    const insertAdmin = db.prepare(`
+      INSERT OR IGNORE INTO users (
+        id, name, email, passwordHash, role, status, phone,
+        agency, licenseNumber, jurisdiction, experienceYears, rejectionReason,
+        createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, 'admin', 'active', ?, ?, ?, ?, ?, NULL, ?, ?)
+    `);
+    insertAdmin.run(
+      "admin-bootstrap",
+      "System Administrator",
+      email,
+      hashPassword(password),
+      "+91 98450 11223",
+      "Asset Swap Platform Governance",
+      "ADMIN-GOV-BOOTSTRAP",
+      "Karnataka State",
+      15,
+      now,
+      now
+    );
+    console.log(`[BOOTSTRAP] Initial production administrator created with email: ${email}`);
+  }
+}
+
 export function ensureDemoAuthUsers(): void {
   const insertUser = db.prepare(`
-    INSERT OR REPLACE INTO users (
+    INSERT OR IGNORE INTO users (
       id, name, email, passwordHash, role, status, phone,
       agency, licenseNumber, jurisdiction, experienceYears, rejectionReason,
       createdAt, updatedAt

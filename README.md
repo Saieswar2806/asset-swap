@@ -1,4 +1,4 @@
-# Asset Swap – Full-Stack Property Exchange Platform (Phase 3: Real Authentication & RBAC)
+# Asset Swap – Full-Stack Property Exchange Platform (Production Ready)
 
 **Asset Swap** is a technology-driven real estate asset exchange platform. 
 
@@ -202,7 +202,7 @@ npm run typecheck
 
 ### 3. Run Automated Tests
 ```bash
-# Run all tests across the complete test suite (48 tests)
+# Run all tests across the complete test suite (89 tests across 6 suites)
 npm test
 
 # Run authentication and RBAC tests specifically
@@ -210,6 +210,12 @@ npm run test:auth
 
 # Run API integration tests
 npm run test:api
+
+# Run security hardening tests
+npm run test:security
+
+# Run end-to-end consensus workflow tests
+npm run test:e2e
 
 # Run matching engine & database unit tests
 npm run test:unit
@@ -242,3 +248,90 @@ Open your browser at `http://localhost:3001` (or `http://localhost:5173` in dev 
 ```bash
 npm run demo
 ```
+
+---
+
+## Production Deployment & Render Guide
+
+The application is architected as a self-contained full-stack Node.js service that builds the React client and serves it alongside the authenticated Express REST API and embedded SQLite database.
+
+### 1. Render Blueprint (`render.yaml`)
+
+Asset Swap includes a production-ready `render.yaml` specification for 1-click Render Blueprints:
+
+```yaml
+services:
+  - type: web
+    name: asset-swap
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm run server
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_PATH
+        value: /var/data/asset_swap.db
+      - key: ADMIN_BOOTSTRAP_EMAIL
+        generateValue: false
+      - key: ADMIN_BOOTSTRAP_PASSWORD
+        generateValue: true
+      - key: APP_ORIGIN
+        sync: false
+    disk:
+      name: asset-swap-data
+      mountPath: /var/data
+      sizeGB: 1
+```
+
+> **IMPORTANT Persistent Disk Requirement:** Render's free tier uses an ephemeral filesystem that clears on every deploy and service restart. To ensure your SQLite database (`users`, `listings`, `matches`, `proposals`, and `audit_logs`) persists permanently across deployments, Render requires a persistent disk on the **Starter** instance tier (`plan: starter`, $7/month instance + $0.25/GB disk).
+
+### 2. Manual Render Web Service Setup
+
+If deploying manually via the Render Dashboard:
+
+1. **Create Web Service**: Connect your GitHub repository (`Saieswar2806/asset-swap`).
+2. **Environment**: Select `Node`.
+3. **Build Command**: `npm ci && npm run build`
+4. **Start Command**: `npm run server`
+5. **Instance Plan**: Select `Starter` (required to attach persistent disk).
+6. **Add Persistent Disk**:
+   - Name: `asset-swap-data`
+   - Mount Path: `/var/data`
+   - Size: `1 GB`
+7. **Configure Environment Variables**:
+   - `NODE_ENV`: `production`
+   - `PORT`: `10000`
+   - `DATABASE_PATH`: `/var/data/asset_swap.db`
+   - `ADMIN_BOOTSTRAP_EMAIL`: Your primary admin email (e.g. `admin@yourdomain.com`)
+   - `ADMIN_BOOTSTRAP_PASSWORD`: Strong password for the initial administrator
+   - `APP_ORIGIN`: Your public Render URL (e.g. `https://asset-swap.onrender.com`)
+
+### 3. Environment Variables Reference
+
+| Variable | Required | Default (Dev) | Production Recommendation | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `NODE_ENV` | No | `development` | `production` | Enables production security headers, secure cookies, and disables demo data auto-seeding |
+| `PORT` | No | `3001` | `10000` (Render default) | Port for the Express backend server |
+| `DATABASE_PATH` | No | `asset_swap.db` | `/var/data/asset_swap.db` | Absolute or relative path to the persistent SQLite database file |
+| `ADMIN_BOOTSTRAP_EMAIL` | No | `admin@asset-swap.local` | `admin@yourdomain.com` | Email for initial administrator bootstrap when database is empty |
+| `ADMIN_BOOTSTRAP_PASSWORD` | No | `Admin@123` | Secure random password | Password for initial administrator bootstrap |
+| `APP_ORIGIN` | No | `*` (Any origin) | `https://your-service.onrender.com` | CORS origin policy; if omitted in production, requests default to same-origin |
+
+### 4. Database Persistence & Integrity
+
+- **Directory Auto-Creation**: On initialization, the backend checks `DATABASE_PATH` and automatically creates parent directories (`fs.mkdirSync(dbDir, { recursive: true })`) before opening the SQLite database.
+- **Concurrency & WAL Mode**: SQLite runs with `PRAGMA journal_mode = WAL;`, `PRAGMA foreign_keys = ON;`, and `PRAGMA busy_timeout = 10000;`.
+- **Safe Migrations**: Table schemas check existing SQLite metadata and use `INSERT OR IGNORE` rather than destructive replacements, preserving existing users, hashed passwords, and foreign key relationships across server reboots.
+- **Production Admin Bootstrap**: In `NODE_ENV === "production"`, synthetic demo accounts and listings are **never** seeded. If no admin account exists, `bootstrapProductionAdmin()` safely creates a single initial administrator using the configured environment variables.
+- **Frontend Safety**: In production mode (`NODE_ENV === "production"`), demo login shortcuts and test credentials are automatically hidden from the login view.
+
+---
+
+## Technical Boundaries & Regulatory Disclaimers
+
+1. **Primary Transaction Model**: Asset exchange is the foundational mechanism. Cash is strictly utilized as a valuation balancing adjustment (**Cash Boot**).
+2. **Human-in-the-Loop Valuations**: No algorithmic or machine-learning pricing models are utilized for property values. All exchange valuations require physical inspection and sign-off by a licensed real estate broker.
+3. **Regulatory Scope**: This application is a technology prototype and matching facilitation tool. It does **not** conduct real-money banking transactions, automated escrow disbursement, title insurance, legal due diligence, or statutory deed registration. All final real estate transactions must be executed through appropriate legal deed conveyances under applicable state laws.

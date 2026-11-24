@@ -6,6 +6,7 @@ import { useUser } from "../context/UserContext.js";
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { login } = useUser();
+  const isDev = Boolean((import.meta as any).env?.DEV) || (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"));
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -160,73 +161,75 @@ export const LoginPage: React.FC = () => {
             </button>
           </form>
 
-          {/* Quick Demo Credentials Panel */}
-          <div className="mt-6 pt-6 border-t border-slate-200">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
-              Quick Test Credentials (Local Demo)
-            </span>
-            <div className="grid grid-cols-1 gap-1.5 text-xs">
-              <button
-                type="button"
-                onClick={() => fillDemoAccount("admin@asset-swap.local", "Admin@123")}
-                className="text-left px-2.5 py-1.5 rounded-lg border border-purple-200 bg-purple-50 hover:bg-purple-100 flex items-center justify-between text-purple-900 transition-colors"
-              >
-                <div>
-                  <span className="font-bold block">Administrator</span>
-                  <span className="text-[10px] text-purple-700">admin@asset-swap.local</span>
-                </div>
-                <span className="text-[10px] font-mono font-bold bg-purple-200/60 px-1.5 py-0.5 rounded">Admin</span>
-              </button>
+          {/* Quick Demo Credentials Panel (Local/Dev Only) */}
+          {isDev && (
+            <div className="mt-6 pt-6 border-t border-slate-200">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                Quick Test Credentials (Local Demo)
+              </span>
+              <div className="grid grid-cols-1 gap-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => fillDemoAccount("admin@asset-swap.local", "Admin@123")}
+                  className="text-left px-2.5 py-1.5 rounded-lg border border-purple-200 bg-purple-50 hover:bg-purple-100 flex items-center justify-between text-purple-900 transition-colors"
+                >
+                  <div>
+                    <span className="font-bold block">Administrator</span>
+                    <span className="text-[10px] text-purple-700">admin@asset-swap.local</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold bg-purple-200/60 px-1.5 py-0.5 rounded">Admin</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => fillDemoAccount("kavitha.murthy@broker.local", "Broker@123")}
-                className="text-left px-2.5 py-1.5 rounded-lg border border-teal-200 bg-teal-50 hover:bg-teal-100 flex items-center justify-between text-teal-900 transition-colors"
-              >
-                <div>
-                  <span className="font-bold block">Approved Broker (Kavitha Murthy)</span>
-                  <span className="text-[10px] text-teal-700">kavitha.murthy@broker.local</span>
-                </div>
-                <span className="text-[10px] font-mono font-bold bg-teal-200/60 px-1.5 py-0.5 rounded">Broker</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => fillDemoAccount("kavitha.murthy@broker.local", "Broker@123")}
+                  className="text-left px-2.5 py-1.5 rounded-lg border border-teal-200 bg-teal-50 hover:bg-teal-100 flex items-center justify-between text-teal-900 transition-colors"
+                >
+                  <div>
+                    <span className="font-bold block">Approved Broker (Kavitha Murthy)</span>
+                    <span className="text-[10px] text-teal-700">kavitha.murthy@broker.local</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold bg-teal-200/60 px-1.5 py-0.5 rounded">Broker</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => fillDemoAccount("suresh.rao@broker.local", "Broker@123")}
-                className="text-left px-2.5 py-1.5 rounded-lg border border-teal-200 bg-teal-50 hover:bg-teal-100 flex items-center justify-between text-teal-900 transition-colors"
-              >
-                <div>
-                  <span className="font-bold block">Approved Broker (Suresh Rao)</span>
-                  <span className="text-[10px] text-teal-700">suresh.rao@broker.local</span>
-                </div>
-                <span className="text-[10px] font-mono font-bold bg-teal-200/60 px-1.5 py-0.5 rounded">Broker</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => fillDemoAccount("suresh.rao@broker.local", "Broker@123")}
+                  className="text-left px-2.5 py-1.5 rounded-lg border border-teal-200 bg-teal-50 hover:bg-teal-100 flex items-center justify-between text-teal-900 transition-colors"
+                >
+                  <div>
+                    <span className="font-bold block">Approved Broker (Suresh Rao)</span>
+                    <span className="text-[10px] text-teal-700">suresh.rao@broker.local</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold bg-teal-200/60 px-1.5 py-0.5 rounded">Broker</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => fillDemoAccount("rajesh.patel@broker.local", "Broker@123")}
-                className="text-left px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 flex items-center justify-between text-amber-900 transition-colors"
-              >
-                <div>
-                  <span className="font-bold block">Pending Broker (Rajesh Patel)</span>
-                  <span className="text-[10px] text-amber-700">rajesh.patel@broker.local</span>
-                </div>
-                <span className="text-[10px] font-mono font-bold bg-amber-200/60 px-1.5 py-0.5 rounded">Pending</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => fillDemoAccount("rajesh.patel@broker.local", "Broker@123")}
+                  className="text-left px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 flex items-center justify-between text-amber-900 transition-colors"
+                >
+                  <div>
+                    <span className="font-bold block">Pending Broker (Rajesh Patel)</span>
+                    <span className="text-[10px] text-amber-700">rajesh.patel@broker.local</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold bg-amber-200/60 px-1.5 py-0.5 rounded">Pending</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => fillDemoAccount("naveen.hegde@owner.local", "Owner@123")}
-                className="text-left px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 flex items-center justify-between text-blue-900 transition-colors"
-              >
-                <div>
-                  <span className="font-bold block">Property Owner (Naveen Hegde)</span>
-                  <span className="text-[10px] text-blue-700">naveen.hegde@owner.local</span>
-                </div>
-                <span className="text-[10px] font-mono font-bold bg-blue-200/60 px-1.5 py-0.5 rounded">Owner</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => fillDemoAccount("naveen.hegde@owner.local", "Owner@123")}
+                  className="text-left px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 flex items-center justify-between text-blue-900 transition-colors"
+                >
+                  <div>
+                    <span className="font-bold block">Property Owner (Naveen Hegde)</span>
+                    <span className="text-[10px] text-blue-700">naveen.hegde@owner.local</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold bg-blue-200/60 px-1.5 py-0.5 rounded">Owner</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="mt-6 flex flex-col gap-2 text-center text-xs text-slate-500 pt-2 border-t border-slate-100">
             <div>

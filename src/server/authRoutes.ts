@@ -61,6 +61,7 @@ authRouter.post("/login", (req: Request, res: Response) => {
     res.cookie("asset_swap_session", session.token, {
       httpOnly: true,
       sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
@@ -168,6 +169,7 @@ authRouter.post("/register", (req: Request, res: Response) => {
     res.cookie("asset_swap_session", session.token, {
       httpOnly: true,
       sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
@@ -326,7 +328,11 @@ authRouter.post("/logout", (req: Request, res: Response) => {
   if (req.sessionToken) {
     destroySession(req.sessionToken);
   }
-  res.clearCookie("asset_swap_session");
+  res.clearCookie("asset_swap_session", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production"
+  });
   res.json({
     success: true,
     message: "Logged out successfully."

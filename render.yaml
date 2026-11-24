@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: asset-swap
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm run server
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_PATH
+        value: /var/data/asset_swap.db
+      - key: ADMIN_BOOTSTRAP_EMAIL
+        generateValue: false
+      - key: ADMIN_BOOTSTRAP_PASSWORD
+        generateValue: true
+      - key: APP_ORIGIN
+        sync: false
+    disk:
+      name: asset-swap-data
+      mountPath: /var/data
+      sizeGB: 1

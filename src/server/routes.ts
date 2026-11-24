@@ -40,19 +40,34 @@ apiRouter.get("/users", requireAuth, requireRole("admin"), (req: Request, res: R
 // ==========================================
 apiRouter.get("/dashboard/stats", (req: Request, res: Response) => {
   try {
-    const totalListings = (db.prepare("SELECT COUNT(*) as count FROM listings").get() as { count: number }).count;
-    const awaitingReview = (db.prepare("SELECT COUNT(*) as count FROM listings WHERE status IN ('submitted', 'under_review')").get() as { count: number }).count;
+    const isStaff = !!req.user && (req.user.role === "admin" || req.user.role === "broker");
+
+    const totalListings = (db.prepare(
+      isStaff
+        ? "SELECT COUNT(*) as count FROM listings"
+        : "SELECT COUNT(*) as count FROM listings WHERE status = 'reviewed'"
+    ).get() as { count: number }).count;
+
+    const awaitingReview = isStaff
+      ? (db.prepare("SELECT COUNT(*) as count FROM listings WHERE status IN ('submitted', 'under_review')").get() as { count: number }).count
+      : 0;
+
     const brokerReviewed = (db.prepare("SELECT COUNT(*) as count FROM listings WHERE status = 'reviewed'").get() as { count: number }).count;
-    const rejectedListings = (db.prepare("SELECT COUNT(*) as count FROM listings WHERE status = 'rejected'").get() as { count: number }).count;
+
+    const rejectedListings = isStaff
+      ? (db.prepare("SELECT COUNT(*) as count FROM listings WHERE status = 'rejected'").get() as { count: number }).count
+      : 0;
 
     // Matches stats
     const activeProposals = (db.prepare("SELECT COUNT(*) as count FROM matches WHERE status = 'proposed'").get() as { count: number }).count;
     const completedTrades = (db.prepare("SELECT COUNT(*) as count FROM matches WHERE status = 'accepted'").get() as { count: number }).count;
 
     // Property Type Distribution
+    const statusFilter = isStaff ? "" : "WHERE status = 'reviewed'";
     const typeDistribution = db.prepare(`
       SELECT propertyType as type, COUNT(*) as count, AVG(ownerDeclaredValue) as avgValue
       FROM listings
+      ${statusFilter}
       GROUP BY propertyType
       ORDER BY count DESC
     `).all();
@@ -61,15 +76,18 @@ apiRouter.get("/dashboard/stats", (req: Request, res: Response) => {
     const districtDistribution = db.prepare(`
       SELECT district, COUNT(*) as count
       FROM listings
+      ${statusFilter}
       GROUP BY district
       ORDER BY count DESC
     `).all();
 
     // Recent Listings
+    const recentWhere = isStaff ? "" : "WHERE l.status = 'reviewed'";
     const recentRows = db.prepare(`
       SELECT l.*, r.desiredPropertyTypes, r.preferredLocalities
       FROM listings l
       LEFT JOIN exchange_requirements r ON l.id = r.listingId
+      ${recentWhere}
       ORDER BY l.createdAt DESC
       LIMIT 6
     `).all() as unknown as DbListingRow[];

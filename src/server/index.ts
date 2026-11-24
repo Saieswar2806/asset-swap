@@ -10,12 +10,31 @@ import { apiRouter } from "./routes.js";
 export const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Security Headers
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
+
 // Middleware
+const isProduction = process.env.NODE_ENV === "production";
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (!isProduction) return callback(null, true);
+    if (process.env.APP_ORIGIN && origin === process.env.APP_ORIGIN) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(authMiddleware);
 
@@ -44,7 +63,7 @@ if (fs.existsSync(distPath)) {
 
 // Start server if not imported as module in tests
 if (process.env.NODE_ENV !== "test") {
-  app.listen(PORT, () => {
+  app.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`🚀 Asset Swap Backend Server running at http://localhost:${PORT}`);
     console.log(`📊 API endpoints available at http://localhost:${PORT}/api`);
   });
