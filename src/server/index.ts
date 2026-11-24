@@ -1,16 +1,23 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import path from "node:path";
 import fs from "node:fs";
 import { initDatabase } from "./db.js";
+import { authMiddleware } from "./auth.js";
 import { apiRouter } from "./routes.js";
 
 export const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(express.json());
+app.use(cookieParser());
+app.use(authMiddleware);
 
 // Initialize Database on Startup
 initDatabase();

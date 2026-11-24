@@ -4,8 +4,18 @@ import { findMatches, eligible } from "../matcher.js";
 import { MatchWorkflow } from "../workflow.js";
 import { resolveCoordinates } from "../location.js";
 import type { Listing, Match, PropertyType, AreaUnit, VerificationStatus } from "../types.js";
+import { authRouter } from "./authRoutes.js";
+import { adminRouter } from "./adminRoutes.js";
+import { brokerRouter } from "./brokerRoutes.js";
+import { ownerRouter } from "./ownerRoutes.js";
 
 export const apiRouter = Router();
+
+// Mount Dedicated Role & Auth Sub-Routers
+apiRouter.use("/auth", authRouter);
+apiRouter.use("/admin", adminRouter);
+apiRouter.use("/broker", brokerRouter);
+apiRouter.use("/owner", ownerRouter);
 
 // ==========================================
 // 1. User & Demo Role Management

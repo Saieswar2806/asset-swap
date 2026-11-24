@@ -4,44 +4,73 @@ import { api } from "../api.js";
 
 interface UserContextType {
   currentUser: User | null;
-  users: User[];
+  isAuthenticated: boolean;
   isAdmin: boolean;
-  switchUser: (userId: string) => void;
+  isBroker: boolean;
+  isOwner: boolean;
   loading: boolean;
+  login: (email: string, password: string) => Promise<User>;
+  register: (payload: { name: string; email: string; phone?: string; password: string; confirmPassword?: string }) => Promise<User>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    api.getUsers()
-      .then((data) => {
-        setUsers(data);
-        // Default to Naveen Hegde (OWNER-001) or first user
-        const defaultUser = data.find((u) => u.id === "OWNER-001") || data[0] || null;
-        setCurrentUser(defaultUser);
-      })
-      .catch((err) => {
-        console.error("Failed to load demo users:", err);
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const switchUser = (userId: string) => {
-    const selected = users.find((u) => u.id === userId);
-    if (selected) {
-      setCurrentUser(selected);
+  const refreshUser = async () => {
+    try {
+      const user = await api.getCurrentUser();
+      setCurrentUser(user);
+    } catch {
+      setCurrentUser(null);
     }
   };
 
+  useEffect(() => {
+    refreshUser().finally(() => setLoading(false));
+  }, []);
+
+  const login = async (email: string, password: string): Promise<User> => {
+    const res = await api.login(email, password);
+    setCurrentUser(res.user);
+    return res.user;
+  };
+
+  const register = async (payload: { name: string; email: string; phone?: string; password: string; confirmPassword?: string }): Promise<User> => {
+    const res = await api.register(payload);
+    setCurrentUser(res.user);
+    return res.user;
+  };
+
+  const logout = async (): Promise<void> => {
+    await api.logout();
+    setCurrentUser(null);
+  };
+
+  const isAuthenticated = !!currentUser && currentUser.status === "active";
   const isAdmin = currentUser?.role === "admin";
+  const isBroker = currentUser?.role === "broker";
+  const isOwner = currentUser?.role === "owner";
 
   return (
-    <UserContext.Provider value={{ currentUser, users, isAdmin, switchUser, loading }}>
+    <UserContext.Provider
+      value={{
+        currentUser,
+        isAuthenticated,
+        isAdmin,
+        isBroker,
+        isOwner,
+        loading,
+        login,
+        register,
+        logout,
+        refreshUser
+      }}
+    >
       {children}
     </UserContext.Provider>
   );

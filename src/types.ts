@@ -4,6 +4,25 @@ export type AssetCategory =
   | "machinery"
   | "business";
 
+export type UserRole = "admin" | "broker" | "owner";
+export type AccountStatus = "active" | "pending" | "rejected" | "suspended";
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  status: AccountStatus;
+  phone?: string;
+  agency?: string;
+  licenseNumber?: string;
+  jurisdiction?: string;
+  experienceYears?: number;
+  rejectionReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type PropertyType =
   | "apartment"
   | "independent_house"

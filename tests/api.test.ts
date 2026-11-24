@@ -83,18 +83,27 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
     const listingId = subRes.body.data.id;
 
     // 2. Try to approve without positive reviewedValue -> must be rejected
-    const invalidApprove = await request(app).post(`/api/admin/listings/${listingId}/review`).send({
-      action: "approve",
-      reviewedValue: 0
-    });
+    const adminLogin = await request(app).post("/api/auth/login").send({ email: "admin@asset-swap.local", password: "Admin@123" });
+    const adminToken = adminLogin.body.token;
+
+    const invalidApprove = await request(app)
+      .post(`/api/admin/listings/${listingId}/review`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        action: "approve",
+        reviewedValue: 0
+      });
     expect(invalidApprove.status).toBe(400);
 
     // 3. Approve with manual broker valuation of ₹3.2 Cr
-    const validApprove = await request(app).post(`/api/admin/listings/${listingId}/review`).send({
-      action: "approve",
-      reviewedValue: 32000000,
-      internalNotes: "Sub-registrar guidance value verified. Broker physical inspection passed."
-    });
+    const validApprove = await request(app)
+      .post(`/api/admin/listings/${listingId}/review`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        action: "approve",
+        reviewedValue: 32000000,
+        internalNotes: "Sub-registrar guidance value verified. Broker physical inspection passed."
+      });
     expect(validApprove.status).toBe(200);
     expect(validApprove.body.data.status).toBe("reviewed");
     expect(validApprove.body.data.reviewedValue).toBe(32000000);
@@ -159,10 +168,16 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
     const listingId = subRes.body.data.id;
 
     // 2. Reject property
-    const rejRes = await request(app).post(`/api/admin/listings/${listingId}/review`).send({
-      action: "reject",
-      rejectionReason: "Title encumbrance found during preliminary legal verification."
-    });
+    const adminLogin = await request(app).post("/api/auth/login").send({ email: "admin@asset-swap.local", password: "Admin@123" });
+    const adminToken = adminLogin.body.token;
+
+    const rejRes = await request(app)
+      .post(`/api/admin/listings/${listingId}/review`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        action: "reject",
+        rejectionReason: "Title encumbrance found during preliminary legal verification."
+      });
     expect(rejRes.status).toBe(200);
     expect(rejRes.body.data.status).toBe("rejected");
     expect(rejRes.body.data.metadata?.rejectionReason).toContain("Title encumbrance");

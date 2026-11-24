@@ -1,15 +1,6 @@
-import type { Listing, Match, PropertyType, AreaUnit, VerificationStatus, Boot, ExchangeLeg } from "../types.js";
+import type { Listing, Match, PropertyType, AreaUnit, VerificationStatus, Boot, ExchangeLeg, UserRole, AccountStatus, User } from "../types.js";
 
-export type { Listing, Match, PropertyType, AreaUnit, VerificationStatus, Boot, ExchangeLeg };
-
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: "user" | "admin";
-  phone?: string;
-  createdAt: string;
-}
+export type { Listing, Match, PropertyType, AreaUnit, VerificationStatus, Boot, ExchangeLeg, UserRole, AccountStatus, User };
 
 export interface DashboardStats {
   totalListings: number;

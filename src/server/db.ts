@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
 import { seedListings } from "../data/listings.js";
+import { hashPassword } from "./password.js";
 import type { Listing, PropertyType, AreaUnit, VerificationStatus, Match, Boot, ExchangeLeg } from "../types.js";
 
 const require = createRequire(import.meta.url);
@@ -11,18 +12,86 @@ const { DatabaseSync } = require("node:sqlite");
 const dbPath = path.resolve(process.cwd(), "asset_swap.db");
 export const db = new DatabaseSync(dbPath);
 
-// Enable Foreign Keys and WAL Mode for performance
-db.exec("PRAGMA foreign_keys = ON;");
+// Enable Foreign Keys, WAL Mode, and Busy Timeout for concurrency
+try {
+  db.exec("PRAGMA journal_mode = WAL;");
+  db.exec("PRAGMA busy_timeout = 10000;");
+  db.exec("PRAGMA foreign_keys = ON;");
+} catch {
+  // Ignored if already configured
+}
 
 export function initDatabase(): void {
-  // 1. Users Table
+  // 1. Users Table (Migration check for role: admin, broker, owner & status: active, pending, etc.)
+  const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get() as { name: string } | undefined;
+  if (tableCheck) {
+    const cols = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+    const hasPasswordHash = cols.some((c) => c.name === "passwordHash");
+    const hasStatus = cols.some((c) => c.name === "status");
+    if (!hasPasswordHash || !hasStatus) {
+      db.exec("PRAGMA foreign_keys = OFF;");
+      db.exec(`
+        CREATE TABLE users_migrated (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          email TEXT UNIQUE NOT NULL,
+          passwordHash TEXT NOT NULL,
+          role TEXT NOT NULL CHECK(role IN ('admin', 'broker', 'owner')),
+          status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'pending', 'rejected', 'suspended')),
+          phone TEXT,
+          agency TEXT,
+          licenseNumber TEXT,
+          jurisdiction TEXT,
+          experienceYears INTEGER,
+          rejectionReason TEXT,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL
+        );
+      `);
+      const defaultOwnerHash = hashPassword("Owner@123");
+      const defaultAdminHash = hashPassword("Admin@123");
+      db.exec(`
+        INSERT OR IGNORE INTO users_migrated (id, name, email, passwordHash, role, status, phone, createdAt, updatedAt)
+        SELECT id, name, email,
+          CASE WHEN role = 'admin' THEN '${defaultAdminHash}' ELSE '${defaultOwnerHash}' END,
+          CASE WHEN role = 'admin' THEN 'admin' WHEN role = 'broker' THEN 'broker' ELSE 'owner' END,
+          'active',
+          phone,
+          createdAt,
+          createdAt
+        FROM users;
+      `);
+      db.exec("DROP TABLE users;");
+      db.exec("ALTER TABLE users_migrated RENAME TO users;");
+      db.exec("PRAGMA foreign_keys = ON;");
+    }
+  } else {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        passwordHash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('admin', 'broker', 'owner')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'pending', 'rejected', 'suspended')),
+        phone TEXT,
+        agency TEXT,
+        licenseNumber TEXT,
+        jurisdiction TEXT,
+        experienceYears INTEGER,
+        rejectionReason TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+    `);
+  }
+
+  // Sessions Table
   db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('user', 'admin')),
-      phone TEXT,
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      userId TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expiresAt TEXT NOT NULL,
       createdAt TEXT NOT NULL
     );
   `);
@@ -155,7 +224,9 @@ export function initDatabase(): void {
     );
   `);
 
-  // Check if we need to seed
+  // Check if we need to seed demo auth users or listings
+  ensureDemoAuthUsers();
+
   const countRow = db.prepare("SELECT COUNT(*) as count FROM listings").get() as { count: number };
   if (countRow.count === 0) {
     seedDatabase();
@@ -206,23 +277,134 @@ function getPropertyImage(type: PropertyType, index: number): string {
   return list[index % list.length];
 }
 
-export function seedDatabase(): void {
-  console.log("Seeding SQLite database with 112+ Karnataka listings...");
-
-  // Seed Admin user
+export function ensureDemoAuthUsers(): void {
   const insertUser = db.prepare(`
-    INSERT OR IGNORE INTO users (id, name, email, role, phone, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO users (
+      id, name, email, passwordHash, role, status, phone,
+      agency, licenseNumber, jurisdiction, experienceYears, rejectionReason,
+      createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
+  const now = new Date().toISOString();
+
+  // 1. Admin Account (admin@asset-swap.local / Admin@123)
   insertUser.run(
     "admin-001",
-    "Kavitha Murthy (Broker Review Specialist)",
-    "kavitha.murthy@asset-swap.local",
+    "Kavitha Murthy (Administrator)",
+    "admin@asset-swap.local",
+    hashPassword("Admin@123"),
     "admin",
+    "active",
     "+91 98450 11223",
-    new Date().toISOString()
+    "Asset Swap Platform Governance",
+    "ADMIN-GOV-01",
+    "Karnataka State",
+    15,
+    null,
+    now,
+    now
   );
+
+  // 2. Approved Broker 1 (kavitha.murthy@broker.local / Broker@123)
+  insertUser.run(
+    "broker-001",
+    "Kavitha Murthy (Senior Broker Reviewer)",
+    "kavitha.murthy@broker.local",
+    hashPassword("Broker@123"),
+    "broker",
+    "active",
+    "+91 98450 22334",
+    "Karnataka Valuation Partners",
+    "KAR-REV-2018-0912",
+    "Bengaluru, Ramanagara, Mysuru",
+    12,
+    null,
+    now,
+    now
+  );
+
+  // 3. Approved Broker 2 (suresh.rao@broker.local / Broker@123)
+  insertUser.run(
+    "broker-002",
+    "Suresh Rao (Valuation Expert)",
+    "suresh.rao@broker.local",
+    hashPassword("Broker@123"),
+    "broker",
+    "active",
+    "+91 98450 33445",
+    "Mysuru Urban Realty Advisors",
+    "KAR-REV-2020-4421",
+    "Mysuru, Mandya, Tumakuru",
+    8,
+    null,
+    now,
+    now
+  );
+
+  // 4. Pending Broker Application (rajesh.patel@broker.local / Broker@123)
+  insertUser.run(
+    "broker-003",
+    "Rajesh Patel",
+    "rajesh.patel@broker.local",
+    hashPassword("Broker@123"),
+    "broker",
+    "pending",
+    "+91 98450 44556",
+    "Patel Property Consultants",
+    "KAR-REV-2023-8890",
+    "Chikkaballapur, Tumakuru",
+    4,
+    null,
+    now,
+    now
+  );
+
+  // 5. Featured Property Owners (Owner@123)
+  const demoOwners = [
+    { id: "OWNER-001", name: "Naveen Hegde", email: "naveen.hegde@owner.local", phone: "+91 98450 00001" },
+    { id: "OWNER-002", name: "Sunil Kulkarni", email: "sunil.kulkarni@owner.local", phone: "+91 98450 00002" },
+    { id: "OWNER-007", name: "Arun Deshmukh", email: "arun.deshmukh@owner.local", phone: "+91 98450 00007" },
+    { id: "OWNER-008", name: "Bhavana Shetty", email: "bhavana.shetty@owner.local", phone: "+91 98450 00008" },
+    { id: "OWNER-009", name: "Chandrasekhar Gowda", email: "chandrasekhar.gowda@owner.local", phone: "+91 98450 00009" },
+    { id: "OWNER-014", name: "Pooja Varma", email: "pooja.varma@owner.local", phone: "+91 98450 00014" }
+  ];
+
+  const ownerHash = hashPassword("Owner@123");
+  for (const o of demoOwners) {
+    insertUser.run(
+      o.id,
+      o.name,
+      o.email,
+      ownerHash,
+      "owner",
+      "active",
+      o.phone,
+      null,
+      null,
+      null,
+      null,
+      null,
+      now,
+      now
+    );
+  }
+}
+
+export function seedDatabase(): void {
+  console.log("Seeding SQLite database with 112+ Karnataka listings...");
+  ensureDemoAuthUsers();
+
+  const insertUser = db.prepare(`
+    INSERT OR IGNORE INTO users (
+      id, name, email, passwordHash, role, status, phone,
+      agency, licenseNumber, jurisdiction, experienceYears, rejectionReason,
+      createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, 'owner', 'active', ?, NULL, NULL, NULL, NULL, NULL, ?, ?)
+  `);
+
+  const ownerHash = hashPassword("Owner@123");
+  const now = new Date().toISOString();
 
   const insertListing = db.prepare(`
     INSERT INTO listings (
@@ -258,14 +440,14 @@ export function seedDatabase(): void {
       ownerId,
       item.ownerName,
       email,
-      "user",
+      ownerHash,
       `+91 98${String(10000000 + idx).slice(0, 8)}`,
-      new Date().toISOString()
+      now,
+      now
     );
 
     const title = generatePropertyTitle(item);
     const imageUrl = getPropertyImage(item.propertyType, idx);
-    const now = new Date().toISOString();
 
     const khataType = item.propertyType === "agricultural_land" ? "Pahani / RTC" : "A-Khata (BBMP/Local Authority)";
     const surveyNumber = `Sy. No. ${100 + (idx % 150)}/${(idx % 4) + 1}`;

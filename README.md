@@ -1,4 +1,4 @@
-# Asset Swap – Full-Stack Property Exchange Platform (Phase 2)
+# Asset Swap – Full-Stack Property Exchange Platform (Phase 3: Real Authentication & RBAC)
 
 **Asset Swap** is a technology-driven real estate asset exchange platform. 
 
@@ -6,29 +6,103 @@ Our fundamental business objective is to connect people who own assets they want
 
 > **Important Transaction Model:** This is **NOT** a conventional property buying/selling marketplace. Asset exchange is the primary transaction model. Cash is only used when there is a difference in the mutually reviewed asset valuations (**Cash Boot**).
 >
-> In strict compliance with regulatory guidelines, **no machine-learning or black-box algorithmic estimations** are used for asset values. Only broker-reviewed valuations are accepted. The prototype does not conduct real-money banking transactions, title search, escrow, payment processing, or deed registration.
+> In strict compliance with regulatory guidelines, **no machine-learning or black-box algorithmic estimations** are used for asset values. Only certified broker-reviewed valuations are accepted. The prototype does not conduct real-money banking transactions, title search, escrow, payment processing, or deed registration.
+
+---
+
+## Demonstration Credentials & Roles
+
+Asset Swap features genuine authentication and backend-enforced role-based access control (RBAC). For demonstration and review, the embedded database is auto-seeded with test accounts:
+
+| Role | Name | Email | Password | Status | Capabilities |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Admin** | System Administrator | `admin@asset-swap.local` | `Admin@123` | `active` | Platform governance, broker approval/rejection, user management, audit logging |
+| **Broker** | Kavitha Murthy | `kavitha.murthy@broker.local` | `Broker@123` | `active` | Valuation assessment queue, physical inspection notes, approve/reject property listings |
+| **Broker** | Suresh Rao | `suresh.rao@broker.local` | `Broker@123` | `active` | Commercial & agricultural valuation reviews, review history |
+| **Broker (Pending)** | Rajesh Patel | `rajesh.patel@broker.local` | `Broker@123` | `pending` | Onboarding applicant awaiting admin verification (queue access blocked until approved) |
+| **Property Owner** | Naveen Hegde | `naveen.hegde@owner.local` | `Owner@123` | `active` | Agricultural land owner in Kanakapura, swap match discovery, consensus voting |
+| **Property Owner** | Sunil Kulkarni | `sunil.kulkarni@owner.local` | `Owner@123` | `active` | Residential plot owner in Mysore, direct & circular swap proposals |
+| **Property Owner** | Arun Deshmukh | `arun.deshmukh@owner.local` | `Owner@123` | `active` | Commercial property owner in Indiranagar |
+| **Property Owner** | Bhavana Shetty | `bhavana.shetty@owner.local` | `Owner@123` | `active` | Luxury apartment owner in Bengaluru |
+
+*Tip: The Login page (`/login`) includes 1-click credential selector buttons to quickly log in as Admin, Verified Broker, Pending Broker, or Property Owners.*
+
+---
+
+## Authentication & Security Architecture
+
+The platform uses genuine cryptographic authentication and server-side session management:
+
+1. **Password Security**:
+   - Built using Node.js standard cryptographic library (`node:crypto`).
+   - Passwords hashed using `scryptSync` with unique 16-byte cryptographically secure random salts.
+   - Verification uses timing-attack resistant `timingSafeEqual`.
+2. **Session Management**:
+   - Server-side SQLite `sessions` table storing high-entropy tokens with 7-day expiration.
+   - Dual-mode client authentication:
+     - **HTTP-Only Cookies (`asset_swap_session`)**: Mitigates cross-site scripting (XSS) token theft.
+     - **Authorization Bearer Header**: Standard REST client and automated API test support.
+3. **Role-Based Access Control (RBAC)**:
+   - Express route middleware (`requireAuth`, `requireRole('admin' | 'broker' | 'owner')`).
+   - Role enforcement occurs strictly on the server:
+     - `/api/admin/*` is restricted exclusively to authenticated users with `role: "admin"`.
+     - `/api/broker/*` is restricted to users with `role: "broker"` and `status: "active"`.
+     - `/api/owner/*` is restricted to authenticated owners, isolating private listings and proposal voting.
+4. **Registration Rules**:
+   - **Property Owners (`/register-owner`)**: Public registration immediately creates an `owner` account with `status: "active"`.
+   - **Brokers (`/broker-apply`)**: Professional onboarding collects agency, RERA license, jurisdiction, and years of experience. Broker accounts strictly enter in `status: "pending"` and cannot review listings until verified and approved by an administrator.
+   - **Administrators**: Protected system accounts; cannot be created via public registration.
+
+---
+
+## Three Dedicated Role-Based Dashboards
+
+### 1. Administrator Dashboard (`/admin/dashboard`)
+*Designed for platform oversight, governance, and broker credential verification.*
+- **System Metrics**: Real-time KPI cards for total users, broker application pipeline, property review statuses, and active exchange proposals.
+- **User Management**: View all platform users, filter by role and status, search by name/email, and toggle account states (`active`, `suspended`).
+- **Broker Verification Queue**: Dedicated modal to review broker applications (agency, RERA license number, jurisdiction, experience) with 1-click **Approve** or **Reject** (with mandatory reason).
+- **Property Inventory Monitoring**: Global view of all 112+ Karnataka listings across review stages.
+- **Audit Logs Trail**: Platform-wide chronological record of all administrative and transactional actions.
+
+### 2. Verified Broker Dashboard (`/broker/dashboard`)
+*Designed for licensed real estate consultants conducting manual valuation reviews.*
+- **Valuation Assessment Queue**: Filter property listings awaiting broker review (`submitted`, `under_review`).
+- **Human-in-the-Loop Valuation Modal**:
+  - Brokers inspect declared values, land Khata types (A Khata, B Khata, Pahani), survey numbers, and locations.
+  - Enter the audited, broker-reviewed property valuation (in ₹ Lakhs/Crores) and physical inspection notes.
+  - Formally **Approve to `reviewed`** or **Reject** with formal notes.
+- **Strict Human Valuation Policy**: No machine learning or automated algorithms are used. Only properties with human broker-reviewed valuations can participate in the matching engine.
+- **My Reviews & Professional Profile**: Complete history of all valuations assessed by the logged-in broker.
+
+### 3. Property Owner Dashboard (`/owner/dashboard`)
+*Designed for property owners to manage assets, find exchanges, and participate in swap proposals.*
+- **My Properties Portfolio**: Comprehensive management of registered properties with status badges (`submitted`, `reviewed`, `rejected`, `locked`).
+- **Integrated Property Registration Wizard**: 4-step wizard to register new Karnataka properties with desired exchange requirements and acceptable cash boundaries.
+- **Targeted Swap Discovery**: Automatically queries the graph matching engine to find direct 2-party and 3-way circular exchanges specifically compatible with the owner's properties.
+- **Swap Proposals & Consensus Voting**: View proposals involving the owner's assets, inspect participant ledgers and cash boot adjustments, and cast binding votes (**Accept** or **Decline**).
+- **Profile & Contact Details**: View and update contact information.
 
 ---
 
 ## System Architecture
 
-The platform is designed as a modern, decoupled full-stack TypeScript application:
-
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        React Frontend (Vite)                           │
 │  - Tailwind CSS + Lucide Icons (Institutional Real Estate Design)      │
-│  - React Router (Dashboard, Register, Portfolio, Review, Match Explorer)│
+│  - Dedicated Dashboards (/admin/dashboard, /broker/dashboard, etc.)    │
+│  - Real Authentication & UserContext (Session cookies + Bearer token)  │
 │  - React Flow (@xyflow/react) Visual Exchange Graph Engine             │
 │  - Recharts Dashboard Analytics (Property Category & Activity Trends)  │
-│  - Persona Switcher Context (Switch between Owners & Admin Reviewer)   │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ HTTP / JSON REST APIs
+                                    │ HTTP / JSON REST APIs (with Auth)
 ┌───────────────────────────────────▼────────────────────────────────────┐
 │                       Express Backend (Node.js)                        │
-│  - RESTful Endpoints (/api/listings, /api/matches, /api/workflow, etc.)│
-│  - Auto-seeding SQLite Persistence Layer (node:sqlite DatabaseSync)    │
-│  - Persona Header & Simulated Auth Context                             │
+│  - Modular RBAC Routers (/api/auth, /api/admin, /api/broker, etc.)    │
+│  - Node:crypto scryptSync password hashing & verification              │
+│  - SQLite Session Store & WAL-Mode Concurrency (node:sqlite)           │
+│  - Comprehensive Audit Trail & Consensus State Machine                 │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ Direct TypeScript In-Memory Calls
 ┌───────────────────────────────────▼────────────────────────────────────┐
@@ -39,55 +113,6 @@ The platform is designed as a modern, decoupled full-stack TypeScript applicatio
 │  - Distributed Transaction Consensus Workflow (src/workflow.ts)        │
 └────────────────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## Interactive Application Modules
-
-### 1. Executive Dashboard (`/`)
-- **Key Metrics Overview**: Real-time KPI cards for Total Listings, Listings Awaiting Review, Broker-Reviewed Assets, Available Matches, Active Proposals, and Completed Exchanges.
-- **Visual Analytics**: Interactive Recharts graphs displaying property category distribution (Acres & Sq Ft) and platform exchange activity trends.
-- **Top Match Opportunities & Recent Listings**: Quick access to highest-scoring exchange opportunities and recently submitted Karnataka properties.
-
-### 2. Multi-Step Property Registration Wizard (`/register`)
-- **Step 1: Property Details**: Title, category, district, taluk, locality, PIN code, standardized area unit conversion, and owner-declared valuation.
-- **Step 2: Legal & Land Information**: Khata type (A Khata, B Khata, E Khata), survey number, land conversion status (DC Converted, Agricultural, NA), and comprehensive description.
-- **Step 3: Exchange Requirements**: Desired asset types, preferred districts/localities, minimum acceptable area, maximum cash willing to pay, and maximum cash willing to receive.
-- **Step 4: Review & Submit**: Comprehensive client-side validation and immediate transition to `submitted` status for broker evaluation.
-
-### 3. My Properties & Owner Portfolio (`/my-properties`)
-- **Owner Asset Management**: Displays the authenticated user's registered real estate portfolio with badges (`submitted`, `reviewed`, `rejected`, `locked`).
-- **Inline Property Editing**: Modal dialog allowing owners to update descriptions, valuations, and exchange preferences.
-- **Instant Match Discovery**: 1-click trigger to find direct 2-party and 3-way circular matches specific to any selected property.
-
-### 4. Admin Broker Review Panel (`/admin/review`)
-- **Valuation Assessment Queue**: Dedicated administration interface for broker-in-the-loop valuation reviews.
-- **Broker Review Action Modal**: 
-  - Allows verified brokers to review legal records and enter an official broker-reviewed valuation (in ₹ Lakhs/Crores).
-  - Explicit decision triggers: **Approve to `reviewed`** or **Reject** with formal internal reviewer notes and reason.
-- **Security & Integrity**: Unreviewed assets cannot enter the matching graph until formally approved by a broker.
-
-### 5. Intelligent Match Discovery (`/matches`)
-- **Configurable Graph Cycle Search**: Search for exchange cycles across all reviewed Karnataka listings or targeted to a specific property.
-- **Search Parameters**: Configurable geographical search radius (10 km to 150 km) and exchange topology filters (Direct 2-Party vs. Multi-Party 3-Way).
-- **Match Opportunity Cards**: Displays composite match score (0–100), breakdown of participants, cash settlement requirements, and savings compared to conventional double-brokerage sales.
-
-### 6. Interactive Match Flow & Consensus Workflow (`/matches/:id`)
-- **Dual Flow React Flow Graph**:
-  - **Preference Flow ($A \to B \to C \to A$)**: Clear blue directional paths showing what each participant desired and receives.
-  - **Physical Asset Transfer Flow ($A \to C$, $B \to A$, $C \to B$)**: Distinct amber directional paths showing exact physical deed conveyances.
-- **Cash Boot Financial Ledger**: Clear tabular view of value given, value received, signed cash boot, and payment directions ensuring zero net deficit across the closed cycle.
-- **Simulated Transaction Lifecycle**:
-  - **Propose Exchange**: Initiates proposal, locking all participating listings from competing matches.
-  - **Participant Consensus**: Real-time simulation of individual participant voting (Accept / Decline).
-  - **Consensus Resolution**: Unanimous acceptance retains locks for legal conveyancing; any decline or proposal expiration automatically releases all locks back to the open pool.
-
-### 7. Swap Proposals Dashboard (`/proposals`)
-- **Consensus Voting Queue**: Displays all active, accepted, declined, and expired proposals across the platform.
-- **Participant Ledger & Live Actions**: Filter proposals by state, inspect each participant's vote status (Pending, Accepted, Declined), and execute Accept, Decline, or Expiration actions directly with real-time asset lock synchronization.
-
-### 8. Platform Activity & Audit Trail (`/activity`)
-- **Persistent Event Stream**: Audit logging stored in SQLite tracking all platform lifecycle events: new property submissions, broker valuation assessments, approvals, rejections, proposal creation, individual votes, and lock releases.
 
 ---
 
@@ -155,7 +180,7 @@ All monetary computations use 2-decimal-place precision to eliminate floating-po
 The dataset in [src/data/listings.ts](file:///c:/Users/laksh/Downloads/asset-swap-prototype/src/data/listings.ts) contains **112 fictional property listings** across Karnataka:
 - **Districts Covered**: Bengaluru, Ramanagara, Mysuru, Mandya, Tumakuru, Chikkaballapur.
 - **Categories Included**: Agricultural land (acres/guntas), Residential plots (sq ft), Apartments (sq ft), Independent houses (sq ft), Farmhouses (acres/sq ft), Commercial properties (sq ft).
-- **Auto-Seeded Database**: On initial startup, the platform creates an embedded SQLite database (`asset_swap.db`) populated with these 112 listings, requirement profiles, broker reviews, and user accounts.
+- **Auto-Seeded Database**: On initial startup, the platform creates an embedded SQLite database (`asset_swap.db`) populated with these 112 listings, requirement profiles, broker reviews, user accounts, and test credentials.
 
 ---
 
@@ -177,11 +202,17 @@ npm run typecheck
 
 ### 3. Run Automated Tests
 ```bash
-# Run unit & SQLite database tests (22 tests)
+# Run all tests across the complete test suite (48 tests)
 npm test
 
-# Run API integration tests (14 tests)
+# Run authentication and RBAC tests specifically
+npm run test:auth
+
+# Run API integration tests
 npm run test:api
+
+# Run matching engine & database unit tests
+npm run test:unit
 ```
 
 ### 4. Build Frontend for Production
@@ -211,4 +242,3 @@ Open your browser at `http://localhost:3001` (or `http://localhost:5173` in dev 
 ```bash
 npm run demo
 ```
-

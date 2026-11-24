@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { ArrowLeftRight, Building2, UserCircle2, ShieldCheck, PlusCircle, LayoutDashboard, Sparkles, Activity } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ArrowLeftRight, Building2, UserCircle2, ShieldCheck, PlusCircle, LayoutDashboard, Sparkles, Activity, LogIn, LogOut, ChevronRight } from "lucide-react";
 import { useUser } from "../context/UserContext.js";
 import { api } from "../api.js";
 
 export const Navbar: React.FC = () => {
   const location = useLocation();
-  const { currentUser, users, switchUser, isAdmin } = useUser();
+  const navigate = useNavigate();
+  const { currentUser, isAuthenticated, isAdmin, isBroker, isOwner, logout } = useUser();
   const [pendingCount, setPendingCount] = useState<number>(0);
 
   useEffect(() => {
@@ -15,19 +16,23 @@ export const Navbar: React.FC = () => {
       .catch(() => {});
   }, [location.pathname]);
 
-  const navLinks = [
+  const dashboardRoute = isAdmin
+    ? "/admin/dashboard"
+    : isBroker
+    ? "/broker/dashboard"
+    : "/owner/dashboard";
+
+  const navLinks: Array<{ to: string; label: string; icon: any; badge?: number | string }> = [
     { to: "/", label: "Overview", icon: LayoutDashboard },
-    { to: "/my-properties", label: "My Properties", icon: Building2 },
     { to: "/matches", label: "Explore Matches", icon: Sparkles },
     { to: "/proposals", label: "Swap Proposals", icon: ArrowLeftRight },
-    { to: "/activity", label: "Activity", icon: Activity },
-    {
-      to: "/admin",
-      label: "Admin Review",
-      icon: ShieldCheck,
-      badge: pendingCount > 0 ? pendingCount : undefined
-    }
+    { to: "/activity", label: "Activity", icon: Activity }
   ];
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
+  };
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
@@ -75,51 +80,52 @@ export const Navbar: React.FC = () => {
             })}
           </nav>
 
-          {/* User Persona Switcher & Add Property Action */}
-          <div className="flex items-center gap-3">
-            <Link
-              to="/register"
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-xs transition-colors"
-            >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span>+ Add Property</span>
-            </Link>
+          {/* Real Authentication Header Actions */}
+          <div className="flex items-center gap-2.5">
+            {isAuthenticated ? (
+              <>
+                <Link
+                  to={dashboardRoute}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 shadow-xs transition-colors"
+                >
+                  <span>My Dashboard</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
 
-            <div className="relative flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-sm">
-              <UserCircle2 className="w-4 h-4 text-slate-500" />
-              <div className="text-left hidden sm:block">
-                <span className="text-[10px] uppercase font-bold text-slate-600 block leading-none">
-                  Acting As:
-                </span>
-                <span className="text-xs font-semibold text-slate-900 max-w-[140px] truncate block">
-                  {currentUser?.name || "Loading..."}
-                </span>
-              </div>
-              <select
-                value={currentUser?.id || ""}
-                onChange={(e) => switchUser(e.target.value)}
-                className="bg-transparent text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer pl-1 pr-2"
-                aria-label="Switch User Persona"
-              >
-                <optgroup label="Property Owners">
-                  <option value="OWNER-001">Naveen Hegde (Agri Land 2 Cr)</option>
-                  <option value="OWNER-002">Sunil Kulkarni (Farmhouse 2 Cr)</option>
-                  <option value="OWNER-007">Arun Deshmukh (Commercial 3 Cr)</option>
-                  <option value="OWNER-008">Bhavana Shetty (House 2 Cr)</option>
-                  <option value="OWNER-009">Chandrasekhar Gowda (Agri 2.5 Cr)</option>
-                  <option value="OWNER-014">Pooja Varma (Pending Review)</option>
-                </optgroup>
-                <optgroup label="Platform Administration">
-                  <option value="admin-001">Kavitha Murthy (Broker Review Specialist)</option>
-                </optgroup>
-              </select>
-            </div>
+                <div className="hidden sm:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
+                  <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-[10px] uppercase">
+                    {currentUser?.name ? currentUser.name.slice(0, 2) : "U"}
+                  </div>
+                  <div className="text-left text-xs leading-none">
+                    <span className="font-bold text-slate-900 block max-w-[120px] truncate">{currentUser?.name}</span>
+                    <span className="text-[10px] font-bold uppercase text-slate-400">{currentUser?.role}</span>
+                  </div>
+                </div>
 
-            {isAdmin && (
-              <span className="hidden lg:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Admin Mode
-              </span>
+                <button
+                  onClick={handleLogout}
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Sign In</span>
+                </Link>
+                <Link
+                  to="/register-owner"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-xs transition-colors"
+                >
+                  <span>Register</span>
+                </Link>
+              </>
             )}
           </div>
         </div>
