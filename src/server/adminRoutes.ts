@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { db, getAllDbListings, getDbListingById, rowToListing, type DbListingRow } from "./db.js";
+import { db, getAllDbListings, getDbListingById, rowToListing, runInTransaction, type DbListingRow } from "./db.js";
 import { requireAuth, requireRole, type AuthUser } from "./auth.js";
 
 export const adminRouter = Router();
@@ -192,6 +192,132 @@ adminRouter.post("/brokers/:id/review", (req: Request, res: Response) => {
         ? `Broker ${broker.name} has been approved and granted active valuation privileges.`
         : `Broker application for ${broker.name} has been rejected.`
     });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// ==========================================
+// 4. Admin Property Review & Valuation Panel
+// ==========================================
+adminRouter.get("/listings", (req: Request, res: Response) => {
+  try {
+    const { status } = req.query;
+    let query = `
+      SELECT l.*, 
+             r.desiredPropertyTypes, r.preferredDistricts, r.preferredLocalities,
+             r.minArea, r.minAreaUnit, r.maxCashToPay, r.maxCashToReceive
+      FROM listings l
+      LEFT JOIN exchange_requirements r ON l.id = r.listingId
+    `;
+    const params: unknown[] = [];
+    if (status && typeof status === "string" && status !== "all") {
+      query += " WHERE l.status = ?";
+      params.push(status);
+    } else {
+      query += " WHERE l.status IN ('submitted', 'under_review', 'rejected')";
+    }
+    query += " ORDER BY l.createdAt DESC";
+
+    const rows = db.prepare(query).all(...params) as unknown as DbListingRow[];
+    const listings = rows.map(rowToListing);
+    res.json({ success: true, count: listings.length, data: listings });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+adminRouter.post("/listings/:id/review", (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const { action, reviewedValue, internalNotes, rejectionReason } = req.body;
+
+    const existing = getDbListingById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: "Listing not found" });
+    }
+
+    // STRICT SECURITY: Derive reviewer identity from authenticated user! Never trust client body!
+    const revId = req.user!.id;
+    const revName = req.user!.name;
+    const now = new Date().toISOString();
+
+    if (action === "approve") {
+      const val = Number(reviewedValue);
+      if (!val || Number.isNaN(val) || val <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: "A valid positive broker-reviewed valuation is strictly required for approval."
+        });
+      }
+
+      runInTransaction(() => {
+        db.prepare(`
+          UPDATE listings SET
+            status = 'reviewed',
+            reviewedValue = ?,
+            rejectionReason = NULL,
+            updatedAt = ?
+          WHERE id = ?
+        `).run(val, now, id);
+
+        db.prepare(`
+          INSERT INTO property_reviews (id, listingId, reviewerId, reviewerName, reviewedValue, internalNotes, action, createdAt)
+          VALUES (?, ?, ?, ?, ?, ?, 'approved', ?)
+        `).run(`rev-${Date.now()}`, id, revId, revName, val, internalNotes || "Broker physical inspection and guidance value verification complete.", now);
+
+        db.prepare(`
+          INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+          VALUES (?, 'listing', ?, 'admin_approve', ?, ?, ?)
+        `).run(
+          `log-${Date.now()}`,
+          id,
+          JSON.stringify({ reviewedValue: val, internalNotes }),
+          revName,
+          now
+        );
+      });
+
+      const updated = getDbListingById(id);
+      return res.json({ success: true, message: `Listing approved with broker-reviewed value of ₹${val.toLocaleString("en-IN")}.`, data: updated });
+    }
+
+    if (action === "reject") {
+      const reason = rejectionReason || "Valuation or documentation criteria not satisfied.";
+
+      runInTransaction(() => {
+        db.prepare(`
+          UPDATE listings SET
+            status = 'rejected',
+            rejectionReason = ?,
+            updatedAt = ?
+          WHERE id = ?
+        `).run(reason, now, id);
+
+        db.prepare(`
+          INSERT INTO property_reviews (id, listingId, reviewerId, reviewerName, reviewedValue, internalNotes, action, createdAt)
+          VALUES (?, ?, ?, ?, 0, ?, 'rejected', ?)
+        `).run(`rev-${Date.now()}`, id, revId, revName, internalNotes || reason, now);
+
+        db.prepare(`
+          INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+          VALUES (?, 'listing', ?, 'admin_reject', ?, ?, ?)
+        `).run(
+          `log-${Date.now()}`,
+          id,
+          JSON.stringify({ rejectionReason: reason, internalNotes }),
+          revName,
+          now
+        );
+      });
+
+      const updated = getDbListingById(id);
+      return res.json({ success: true, message: "Listing rejected.", data: updated });
+    }
+
+    return res.status(400).json({ success: false, error: "Invalid action. Use 'approve' or 'reject'." });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });

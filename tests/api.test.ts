@@ -1,9 +1,24 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, beforeAll } from "vitest";
 import request from "supertest";
 import { app } from "../src/server/index.js";
 import { db } from "../src/server/db.js";
 
 describe("Asset Swap Full-Stack API Integration Tests", () => {
+  let adminToken = "";
+  let ownerToken = "";
+
+  beforeAll(async () => {
+    const adminLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "admin@asset-swap.local", password: "Admin@123" });
+    adminToken = adminLogin.body.token;
+
+    const ownerLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "naveen.hegde@owner.local", password: "Owner@123" });
+    ownerToken = ownerLogin.body.token;
+  });
+
   afterEach(() => {
     // Keep listings unlocked between tests so test ordering does not deplete matching candidates
     try {
@@ -12,19 +27,24 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
       // Ignored
     }
   });
+
   it("GET /health returns healthy status", async () => {
     const res = await request(app).get("/health");
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("healthy");
   });
 
-  it("GET /api/users returns demonstration users", async () => {
-    const res = await request(app).get("/api/users");
+  it("GET /api/users returns demonstration users (Admin only, passwordHash stripped)", async () => {
+    const res = await request(app)
+      .get("/api/users")
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.length).toBeGreaterThan(0);
     const admin = res.body.data.find((u: { role: string }) => u.role === "admin");
     expect(admin).toBeDefined();
+    // Security check: passwordHash must never be exposed
+    expect(res.body.data.every((u: any) => u.passwordHash === undefined)).toBe(true);
   });
 
   it("GET /api/dashboard/stats returns aggregate metrics and charts data", async () => {
@@ -69,7 +89,10 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
       }
     };
 
-    const res = await request(app).post("/api/listings").send(newProperty);
+    const res = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send(newProperty);
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.status).toBe("submitted");
@@ -79,22 +102,22 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
 
   it("Admin Review Panel: Rejects invalid approval without reviewedValue, then approves with broker valuation", async () => {
     // 1. First submit a property
-    const subRes = await request(app).post("/api/listings").send({
-      title: "Pending Commercial Complex",
-      propertyType: "commercial",
-      district: "Bengaluru",
-      locality: "Indiranagar",
-      area: 2500,
-      areaUnit: "sq_ft",
-      ownerDeclaredValue: 35000000,
-      wants: { propertyTypes: ["apartment"] }
-    });
+    const subRes = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({
+        title: "Pending Commercial Complex",
+        propertyType: "commercial",
+        district: "Bengaluru",
+        locality: "Indiranagar",
+        area: 2500,
+        areaUnit: "sq_ft",
+        ownerDeclaredValue: 35000000,
+        wants: { propertyTypes: ["apartment"] }
+      });
     const listingId = subRes.body.data.id;
 
     // 2. Try to approve without positive reviewedValue -> must be rejected
-    const adminLogin = await request(app).post("/api/auth/login").send({ email: "admin@asset-swap.local", password: "Admin@123" });
-    const adminToken = adminLogin.body.token;
-
     const invalidApprove = await request(app)
       .post(`/api/admin/listings/${listingId}/review`)
       .set("Authorization", `Bearer ${adminToken}`)
@@ -140,46 +163,55 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
     expect(match).toBeDefined();
 
     // Propose match -> locks listings
-    const proposeRes = await request(app).post("/api/workflow/propose").send({ matchId: match.id });
+    const proposeRes = await request(app)
+      .post("/api/workflow/propose")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ matchId: match.id });
     expect(proposeRes.status).toBe(200);
 
     // Participant 1 accepts
-    const resp1 = await request(app).post("/api/workflow/respond").send({
-      matchId: match.id,
-      listingId: match.listingIds[0],
-      decision: "accepted"
-    });
+    const resp1 = await request(app)
+      .post("/api/workflow/respond")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        matchId: match.id,
+        listingId: match.listingIds[0],
+        decision: "accepted"
+      });
     expect(resp1.status).toBe(200);
     expect(resp1.body.matchStatus).toBe("proposed");
 
     // Participant 2 accepts -> becomes accepted
-    const resp2 = await request(app).post("/api/workflow/respond").send({
-      matchId: match.id,
-      listingId: match.listingIds[1],
-      decision: "accepted"
-    });
+    const resp2 = await request(app)
+      .post("/api/workflow/respond")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        matchId: match.id,
+        listingId: match.listingIds[1],
+        decision: "accepted"
+      });
     expect(resp2.status).toBe(200);
     expect(resp2.body.matchStatus).toBe("accepted");
   });
 
   it("Admin Review Panel: Listing rejection records reason and prevents matching", async () => {
     // 1. Submit property
-    const subRes = await request(app).post("/api/listings").send({
-      title: "Substandard Farmland with Title Issues",
-      propertyType: "agricultural_land",
-      district: "Mandya",
-      locality: "Maddur",
-      area: 2,
-      areaUnit: "acres",
-      ownerDeclaredValue: 15000000,
-      wants: { propertyTypes: ["farmhouse"] }
-    });
+    const subRes = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({
+        title: "Substandard Farmland with Title Issues",
+        propertyType: "agricultural_land",
+        district: "Mandya",
+        locality: "Maddur",
+        area: 2,
+        areaUnit: "acres",
+        ownerDeclaredValue: 15000000,
+        wants: { propertyTypes: ["farmhouse"] }
+      });
     const listingId = subRes.body.data.id;
 
     // 2. Reject property
-    const adminLogin = await request(app).post("/api/auth/login").send({ email: "admin@asset-swap.local", password: "Admin@123" });
-    const adminToken = adminLogin.body.token;
-
     const rejRes = await request(app)
       .post(`/api/admin/listings/${listingId}/review`)
       .set("Authorization", `Bearer ${adminToken}`)
@@ -194,16 +226,19 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
 
   it("Matching engine strictly processes only approved/reviewed listings", async () => {
     // Submit an unreviewed listing
-    const subRes = await request(app).post("/api/listings").send({
-      title: "Unreviewed Luxury Apartment",
-      propertyType: "apartment",
-      district: "Bengaluru",
-      locality: "Whitefield",
-      area: 1800,
-      areaUnit: "sq_ft",
-      ownerDeclaredValue: 12000000,
-      wants: { propertyTypes: ["plot_site"] }
-    });
+    const subRes = await request(app)
+      .post("/api/listings")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({
+        title: "Unreviewed Luxury Apartment",
+        propertyType: "apartment",
+        district: "Bengaluru",
+        locality: "Whitefield",
+        area: 1800,
+        areaUnit: "sq_ft",
+        ownerDeclaredValue: 12000000,
+        wants: { propertyTypes: ["plot_site"] }
+      });
     const unapprovedId = subRes.body.data.id;
 
     // Get matches
@@ -254,15 +289,21 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
     expect(unlockedMatch).toBeDefined();
 
     // Propose
-    const proposeRes = await request(app).post("/api/workflow/propose").send({ matchId: unlockedMatch.id });
+    const proposeRes = await request(app)
+      .post("/api/workflow/propose")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ matchId: unlockedMatch.id });
     expect(proposeRes.status).toBe(200);
 
     // Decline by participant 1
-    const declineRes = await request(app).post("/api/workflow/respond").send({
-      matchId: unlockedMatch.id,
-      listingId: unlockedMatch.listingIds[0],
-      decision: "declined"
-    });
+    const declineRes = await request(app)
+      .post("/api/workflow/respond")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        matchId: unlockedMatch.id,
+        listingId: unlockedMatch.listingIds[0],
+        decision: "declined"
+      });
     expect(declineRes.status).toBe(200);
     expect(declineRes.body.matchStatus).toBe("declined");
 
@@ -279,10 +320,16 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
     expect(match).toBeDefined();
 
     // Propose
-    await request(app).post("/api/workflow/propose").send({ matchId: match.id });
+    await request(app)
+      .post("/api/workflow/propose")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ matchId: match.id });
 
     // Expire
-    const expRes = await request(app).post("/api/workflow/expire").send({ matchId: match.id });
+    const expRes = await request(app)
+      .post("/api/workflow/expire")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ matchId: match.id });
     expect(expRes.status).toBe(200);
     expect(expRes.body.matchStatus).toBe("expired");
 
@@ -293,13 +340,17 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
     }
   });
 
-  it("GET /api/proposals and GET /api/activity return populated records", async () => {
-    const propRes = await request(app).get("/api/proposals");
+  it("GET /api/proposals and GET /api/activity return populated records for authenticated admin", async () => {
+    const propRes = await request(app)
+      .get("/api/proposals")
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(propRes.status).toBe(200);
     expect(propRes.body.success).toBe(true);
     expect(propRes.body.data.length).toBeGreaterThan(0);
 
-    const actRes = await request(app).get("/api/activity");
+    const actRes = await request(app)
+      .get("/api/activity")
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(actRes.status).toBe(200);
     expect(actRes.body.success).toBe(true);
     expect(actRes.body.data.length).toBeGreaterThan(0);

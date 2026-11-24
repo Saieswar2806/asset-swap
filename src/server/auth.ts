@@ -46,7 +46,7 @@ export function destroySession(token: string): void {
 export function getUserFromSession(token: string): AuthUser | null {
   try {
     const row = db.prepare(`
-      SELECT u.*
+      SELECT u.id, u.name, u.email, u.role, u.status, u.phone, u.agency, u.licenseNumber, u.jurisdiction, u.experienceYears, u.rejectionReason, u.createdAt, u.updatedAt
       FROM sessions s
       JOIN users u ON s.userId = u.id
       WHERE s.token = ? AND s.expiresAt > datetime('now')

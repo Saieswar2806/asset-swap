@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { db, getAllDbListings, getDbListingById, rowToListing, type DbListingRow } from "./db.js";
+import { db, getAllDbListings, getDbListingById, rowToListing, runInTransaction, type DbListingRow } from "./db.js";
 import { findMatches, eligible } from "../matcher.js";
 import { MatchWorkflow } from "../workflow.js";
 import { resolveCoordinates } from "../location.js";
@@ -8,6 +8,7 @@ import { authRouter } from "./authRoutes.js";
 import { adminRouter } from "./adminRoutes.js";
 import { brokerRouter } from "./brokerRoutes.js";
 import { ownerRouter } from "./ownerRoutes.js";
+import { requireAuth, requireRole } from "./auth.js";
 
 export const apiRouter = Router();
 
@@ -18,11 +19,15 @@ apiRouter.use("/broker", brokerRouter);
 apiRouter.use("/owner", ownerRouter);
 
 // ==========================================
-// 1. User & Demo Role Management
+// 1. User & Demo Role Management (Admin-Protected)
 // ==========================================
-apiRouter.get("/users", (req: Request, res: Response) => {
+apiRouter.get("/users", requireAuth, requireRole("admin"), (req: Request, res: Response) => {
   try {
-    const rows = db.prepare("SELECT * FROM users ORDER BY role DESC, name ASC").all();
+    const rows = db.prepare(`
+      SELECT id, name, email, role, status, phone, agency, licenseNumber, jurisdiction, experienceYears, createdAt, updatedAt
+      FROM users
+      ORDER BY role DESC, name ASC
+    `).all();
     res.json({ success: true, data: rows });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -176,7 +181,7 @@ apiRouter.get("/listings/:id", (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post("/listings", (req: Request, res: Response) => {
+apiRouter.post("/listings", requireAuth, requireRole("owner", "admin"), (req: Request, res: Response) => {
   try {
     const body = req.body;
 
@@ -188,20 +193,9 @@ apiRouter.post("/listings", (req: Request, res: Response) => {
       });
     }
 
-    const ownerId = body.ownerId || "OWNER-NEW";
-    const ownerName = body.ownerName || "Property Owner";
-
-    // Ensure user exists
-    db.prepare(`
-      INSERT OR IGNORE INTO users (id, name, email, role, phone, createdAt)
-      VALUES (?, ?, ?, 'user', ?, ?)
-    `).run(
-      ownerId,
-      ownerName,
-      `${ownerName.toLowerCase().replace(/[^a-z]/g, "")}@fictional-demo.local`,
-      body.phone || "+91 98450 00000",
-      new Date().toISOString()
-    );
+    // STRICT SECURITY: Derive owner identity from authenticated user! Never trust client body!
+    const ownerId = req.user!.id;
+    const ownerName = req.user!.name;
 
     // Generate listing ID
     const countRow = db.prepare("SELECT COUNT(*) as count FROM listings").get() as { count: number };
@@ -233,75 +227,77 @@ apiRouter.post("/listings", (req: Request, res: Response) => {
     };
     const coords = resolveCoordinates(tempListing);
 
-    // Insert into listings table
-    db.prepare(`
-      INSERT INTO listings (
-        id, ownerId, ownerName, title, category, propertyType,
-        district, taluk, locality, pincode, latitude, longitude,
-        area, areaUnit, ownerDeclaredValue, reviewedValue, status,
-        rejectionReason, locked, khataType, surveyNumber, conversionStatus,
-        description, imageUrl, createdAt, updatedAt
-      ) VALUES (
-        ?, ?, ?, ?, 'real_estate', ?,
-        ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, NULL, 'submitted',
-        NULL, 0, ?, ?, ?,
-        ?, ?, ?, ?
-      )
-    `).run(
-      id,
-      ownerId,
-      ownerName,
-      body.title,
-      body.propertyType,
-      body.district,
-      body.taluk || null,
-      body.locality,
-      body.pincode || "560001",
-      coords?.lat ?? null,
-      coords?.lon ?? null,
-      Number(body.area),
-      body.areaUnit || "sq_ft",
-      Number(body.ownerDeclaredValue),
-      body.khataType || "A-Khata",
-      body.surveyNumber || "Sy. No. 101/1",
-      body.conversionStatus || "DC Converted",
-      body.description || "Freshly registered property ready for broker valuation assessment.",
-      imageUrl,
-      now,
-      now
-    );
+    runInTransaction(() => {
+      // Insert into listings table
+      db.prepare(`
+        INSERT INTO listings (
+          id, ownerId, ownerName, title, category, propertyType,
+          district, taluk, locality, pincode, latitude, longitude,
+          area, areaUnit, ownerDeclaredValue, reviewedValue, status,
+          rejectionReason, locked, khataType, surveyNumber, conversionStatus,
+          description, imageUrl, createdAt, updatedAt
+        ) VALUES (
+          ?, ?, ?, ?, 'real_estate', ?,
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, NULL, 'submitted',
+          NULL, 0, ?, ?, ?,
+          ?, ?, ?, ?
+        )
+      `).run(
+        id,
+        ownerId,
+        ownerName,
+        body.title,
+        body.propertyType,
+        body.district,
+        body.taluk || null,
+        body.locality,
+        body.pincode || "560001",
+        coords?.lat ?? null,
+        coords?.lon ?? null,
+        Number(body.area),
+        body.areaUnit || "sq_ft",
+        Number(body.ownerDeclaredValue),
+        body.khataType || "A-Khata",
+        body.surveyNumber || "Sy. No. 101/1",
+        body.conversionStatus || "DC Converted",
+        body.description || "Freshly registered property ready for broker valuation assessment.",
+        imageUrl,
+        now,
+        now
+      );
 
-    // Insert exchange requirements
-    const wants = body.wants || {};
-    db.prepare(`
-      INSERT INTO exchange_requirements (
-        id, listingId, desiredPropertyTypes, preferredDistricts,
-        preferredLocalities, minArea, minAreaUnit, maxCashToPay, maxCashToReceive
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      `req-${id}`,
-      id,
-      JSON.stringify(wants.propertyTypes || []),
-      JSON.stringify(wants.preferredDistricts || [body.district]),
-      JSON.stringify(wants.preferredLocations || [body.locality]),
-      wants.minArea ? Number(wants.minArea) : null,
-      wants.minAreaUnit || "sq_ft",
-      wants.maxCashToPay !== undefined ? Number(wants.maxCashToPay) : null,
-      wants.maxCashToReceive !== undefined ? Number(wants.maxCashToReceive) : null
-    );
+      // Insert exchange requirements
+      const wants = body.wants || {};
+      db.prepare(`
+        INSERT INTO exchange_requirements (
+          id, listingId, desiredPropertyTypes, preferredDistricts,
+          preferredLocalities, minArea, minAreaUnit, maxCashToPay, maxCashToReceive
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        `req-${id}`,
+        id,
+        JSON.stringify(wants.propertyTypes || []),
+        JSON.stringify(wants.preferredDistricts || [body.district]),
+        JSON.stringify(wants.preferredLocations || [body.locality]),
+        wants.minArea ? Number(wants.minArea) : null,
+        wants.minAreaUnit || "sq_ft",
+        wants.maxCashToPay !== undefined ? Number(wants.maxCashToPay) : null,
+        wants.maxCashToReceive !== undefined ? Number(wants.maxCashToReceive) : null
+      );
 
-    // Audit log
-    db.prepare(`
-      INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
-      VALUES (?, 'listing', ?, 'create_listing', ?, ?, ?)
-    `).run(
-      `log-${Date.now()}`,
-      id,
-      JSON.stringify({ title: body.title, propertyType: body.propertyType, declaredValue: body.ownerDeclaredValue }),
-      ownerName,
-      now
-    );
+      // Audit log
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'listing', ?, 'create_listing', ?, ?, ?)
+      `).run(
+        `log-${Date.now()}`,
+        id,
+        JSON.stringify({ title: body.title, propertyType: body.propertyType, declaredValue: body.ownerDeclaredValue }),
+        ownerName,
+        now
+      );
+    });
 
     const created = getDbListingById(id);
     res.status(201).json({ success: true, data: created });
@@ -311,7 +307,7 @@ apiRouter.post("/listings", (req: Request, res: Response) => {
   }
 });
 
-apiRouter.put("/listings/:id", (req: Request, res: Response) => {
+apiRouter.put("/listings/:id", requireAuth, requireRole("owner", "admin"), (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
     const existing = getDbListingById(id);
@@ -319,6 +315,15 @@ apiRouter.put("/listings/:id", (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: "Listing not found" });
     }
 
+    // STRICT SECURITY: Ownership verification (only owner who owns listing or admin can modify)
+    if (req.user!.role !== "admin" && existing.ownerId !== req.user!.id) {
+      return res.status(403).json({
+        success: false,
+        error: "You are not authorized to modify this property listing."
+      });
+    }
+
+    // STRICT SECURITY: Lock check
     if (existing.locked) {
       return res.status(400).json({
         success: false,
@@ -329,174 +334,64 @@ apiRouter.put("/listings/:id", (req: Request, res: Response) => {
     const body = req.body;
     const now = new Date().toISOString();
 
-    db.prepare(`
-      UPDATE listings SET
-        title = COALESCE(?, title),
-        district = COALESCE(?, district),
-        locality = COALESCE(?, locality),
-        area = COALESCE(?, area),
-        areaUnit = COALESCE(?, areaUnit),
-        ownerDeclaredValue = COALESCE(?, ownerDeclaredValue),
-        description = COALESCE(?, description),
-        updatedAt = ?
-      WHERE id = ?
-    `).run(
-      body.title ?? null,
-      body.district ?? null,
-      body.locality ?? null,
-      body.area ? Number(body.area) : null,
-      body.areaUnit ?? null,
-      body.ownerDeclaredValue ? Number(body.ownerDeclaredValue) : null,
-      body.description ?? null,
-      now,
-      id
-    );
-
-    if (body.wants) {
+    runInTransaction(() => {
+      // Whitelist only editable fields; never allow altering reviewedValue, status, locked, or ownerId
       db.prepare(`
-        UPDATE exchange_requirements SET
-          desiredPropertyTypes = COALESCE(?, desiredPropertyTypes),
-          preferredLocalities = COALESCE(?, preferredLocalities),
-          minArea = COALESCE(?, minArea),
-          maxCashToPay = COALESCE(?, maxCashToPay),
-          maxCashToReceive = COALESCE(?, maxCashToReceive)
-        WHERE listingId = ?
+        UPDATE listings SET
+          title = COALESCE(?, title),
+          district = COALESCE(?, district),
+          locality = COALESCE(?, locality),
+          area = COALESCE(?, area),
+          areaUnit = COALESCE(?, areaUnit),
+          ownerDeclaredValue = COALESCE(?, ownerDeclaredValue),
+          description = COALESCE(?, description),
+          updatedAt = ?
+        WHERE id = ?
       `).run(
-        body.wants.propertyTypes ? JSON.stringify(body.wants.propertyTypes) : null,
-        body.wants.preferredLocations ? JSON.stringify(body.wants.preferredLocations) : null,
-        body.wants.minArea ? Number(body.wants.minArea) : null,
-        body.wants.maxCashToPay !== undefined ? Number(body.wants.maxCashToPay) : null,
-        body.wants.maxCashToReceive !== undefined ? Number(body.wants.maxCashToReceive) : null,
+        body.title ?? null,
+        body.district ?? null,
+        body.locality ?? null,
+        body.area ? Number(body.area) : null,
+        body.areaUnit ?? null,
+        body.ownerDeclaredValue ? Number(body.ownerDeclaredValue) : null,
+        body.description ?? null,
+        now,
         id
       );
-    }
+
+      if (body.wants) {
+        db.prepare(`
+          UPDATE exchange_requirements SET
+            desiredPropertyTypes = COALESCE(?, desiredPropertyTypes),
+            preferredLocalities = COALESCE(?, preferredLocalities),
+            minArea = COALESCE(?, minArea),
+            maxCashToPay = COALESCE(?, maxCashToPay),
+            maxCashToReceive = COALESCE(?, maxCashToReceive)
+          WHERE listingId = ?
+        `).run(
+          body.wants.propertyTypes ? JSON.stringify(body.wants.propertyTypes) : null,
+          body.wants.preferredLocations ? JSON.stringify(body.wants.preferredLocations) : null,
+          body.wants.minArea ? Number(body.wants.minArea) : null,
+          body.wants.maxCashToPay !== undefined ? Number(body.wants.maxCashToPay) : null,
+          body.wants.maxCashToReceive !== undefined ? Number(body.wants.maxCashToReceive) : null,
+          id
+        );
+      }
+
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'listing', ?, 'update_listing', ?, ?, ?)
+      `).run(
+        `log-${Date.now()}`,
+        id,
+        JSON.stringify({ title: body.title, updatedFields: Object.keys(body) }),
+        req.user!.name,
+        now
+      );
+    });
 
     const updated = getDbListingById(id);
     res.json({ success: true, data: updated });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ success: false, error: message });
-  }
-});
-
-// ==========================================
-// 4. Admin Review Panel (Valuation & Approval)
-// ==========================================
-apiRouter.get("/admin/listings", (req: Request, res: Response) => {
-  try {
-    const { status } = req.query;
-    let query = `
-      SELECT l.*, 
-             r.desiredPropertyTypes, r.preferredDistricts, r.preferredLocalities,
-             r.minArea, r.minAreaUnit, r.maxCashToPay, r.maxCashToReceive
-      FROM listings l
-      LEFT JOIN exchange_requirements r ON l.id = r.listingId
-    `;
-    const params: unknown[] = [];
-    if (status && typeof status === "string") {
-      query += " WHERE l.status = ?";
-      params.push(status);
-    } else {
-      query += " WHERE l.status IN ('submitted', 'under_review', 'rejected')";
-    }
-    query += " ORDER BY l.createdAt DESC";
-
-    const rows = db.prepare(query).all(...params) as unknown as DbListingRow[];
-    const listings = rows.map(rowToListing);
-    res.json({ success: true, count: listings.length, data: listings });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ success: false, error: message });
-  }
-});
-
-apiRouter.post("/admin/listings/:id/review", (req: Request, res: Response) => {
-  try {
-    const id = String(req.params.id);
-    const { action, reviewedValue, internalNotes, rejectionReason, reviewerId, reviewerName } = req.body;
-
-    const existing = getDbListingById(id);
-    if (!existing) {
-      return res.status(404).json({ success: false, error: "Listing not found" });
-    }
-
-    const revId = reviewerId || "admin-001";
-    const revName = reviewerName || "Kavitha Murthy (Broker Review Specialist)";
-    const now = new Date().toISOString();
-
-    if (action === "approve") {
-      const val = Number(reviewedValue);
-      if (!val || Number.isNaN(val) || val <= 0) {
-        return res.status(400).json({
-          success: false,
-          error: "A valid positive broker-reviewed valuation is strictly required for approval."
-        });
-      }
-
-      // Update listing to reviewed
-      db.prepare(`
-        UPDATE listings SET
-          status = 'reviewed',
-          reviewedValue = ?,
-          rejectionReason = NULL,
-          updatedAt = ?
-        WHERE id = ?
-      `).run(val, now, id);
-
-      // Record audit review
-      db.prepare(`
-        INSERT INTO property_reviews (id, listingId, reviewerId, reviewerName, reviewedValue, internalNotes, action, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?, 'approved', ?)
-      `).run(`rev-${Date.now()}`, id, revId, revName, val, internalNotes || "Broker physical inspection and guidance value verification complete.", now);
-
-      // Audit log
-      db.prepare(`
-        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
-        VALUES (?, 'listing', ?, 'admin_approve', ?, ?, ?)
-      `).run(
-        `log-${Date.now()}`,
-        id,
-        JSON.stringify({ reviewedValue: val, internalNotes }),
-        revName,
-        now
-      );
-
-      const updated = getDbListingById(id);
-      return res.json({ success: true, message: `Listing approved with broker-reviewed value of ₹${val.toLocaleString("en-IN")}.`, data: updated });
-    }
-
-    if (action === "reject") {
-      const reason = rejectionReason || "Valuation or documentation criteria not satisfied.";
-
-      db.prepare(`
-        UPDATE listings SET
-          status = 'rejected',
-          rejectionReason = ?,
-          updatedAt = ?
-        WHERE id = ?
-      `).run(reason, now, id);
-
-      db.prepare(`
-        INSERT INTO property_reviews (id, listingId, reviewerId, reviewerName, reviewedValue, internalNotes, action, createdAt)
-        VALUES (?, ?, ?, ?, 0, ?, 'rejected', ?)
-      `).run(`rev-${Date.now()}`, id, revId, revName, internalNotes || reason, now);
-
-      db.prepare(`
-        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
-        VALUES (?, 'listing', ?, 'admin_reject', ?, ?, ?)
-      `).run(
-        `log-${Date.now()}`,
-        id,
-        JSON.stringify({ rejectionReason: reason, internalNotes }),
-        revName,
-        now
-      );
-
-      const updated = getDbListingById(id);
-      return res.json({ success: true, message: "Listing rejected.", data: updated });
-    }
-
-    return res.status(400).json({ success: false, error: "Invalid action. Use 'approve' or 'reject'." });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });
@@ -666,11 +561,20 @@ apiRouter.get("/matches/:id", (req: Request, res: Response) => {
 // ==========================================
 // 6. Transaction Workflow & Locking Lifecycle
 // ==========================================
-apiRouter.post("/workflow/propose", (req: Request, res: Response) => {
+apiRouter.post("/workflow/propose", requireAuth, requireRole("owner", "admin"), (req: Request, res: Response) => {
   try {
     const { matchId } = req.body;
     if (!matchId) {
       return res.status(400).json({ success: false, error: "matchId is required" });
+    }
+
+    // Check if this match has already been proposed
+    const existingMatch = db.prepare("SELECT status FROM matches WHERE id = ?").get(matchId) as { status: string } | undefined;
+    if (existingMatch && existingMatch.status === "proposed") {
+      return res.status(400).json({
+        success: false,
+        error: "This match is already proposed and currently open in escrow."
+      });
     }
 
     const allListings = getAllDbListings();
@@ -681,54 +585,129 @@ apiRouter.post("/workflow/propose", (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: "Match not found or listings no longer eligible" });
     }
 
-    // Instantiate MatchWorkflow with database listings
+    // Role check: non-admin owners can only propose matches that involve at least one of their properties
+    if (req.user!.role !== "admin") {
+      const userParticipates = targetMatch.boots.some((b) => b.ownerId === req.user!.id);
+      if (!userParticipates) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden: You can only propose matches involving your own properties."
+        });
+      }
+    }
+
+    // Validate all participating listings exist, are reviewed, and are not locked
+    for (const listingId of targetMatch.listingIds) {
+      const listing = getDbListingById(listingId);
+      if (!listing) {
+        return res.status(400).json({ success: false, error: `Listing ${listingId} not found.` });
+      }
+      if (listing.status !== "reviewed") {
+        return res.status(400).json({ success: false, error: `Listing ${listingId} is not approved/reviewed (current status: ${listing.status}).` });
+      }
+      if (listing.locked) {
+        return res.status(400).json({ success: false, error: `Listing ${listingId} is already locked in an active proposal.` });
+      }
+    }
+
+    // Check if an active proposed match already exists for any participating listing
+    const activeMatches = db.prepare("SELECT id, listingIds FROM matches WHERE status = 'proposed'").all() as Array<{ id: string; listingIds: string }>;
+    for (const am of activeMatches) {
+      try {
+        const ids = JSON.parse(am.listingIds) as string[];
+        const overlap = ids.some((id) => targetMatch.listingIds.includes(id));
+        if (overlap) {
+          return res.status(400).json({
+            success: false,
+            error: "An active proposal already exists for one or more participating properties."
+          });
+        }
+      } catch {
+        // ignore JSON parse err
+      }
+    }
+
+    // Instantiate MatchWorkflow with database listings to run engine validation
     const workflow = new MatchWorkflow(allListings);
     workflow.propose(targetMatch);
 
-    // Persist locks into database
-    const updateLock = db.prepare("UPDATE listings SET locked = 1 WHERE id = ?");
-    for (const id of targetMatch.listingIds) {
-      updateLock.run(id);
-    }
+    // Atomically persist locks, match, participants, responses, and audit log
+    runInTransaction(() => {
+      const updateLock = db.prepare("UPDATE listings SET locked = 1 WHERE id = ?");
+      for (const id of targetMatch.listingIds) {
+        updateLock.run(id);
+      }
 
-    // Insert or update match record
-    db.prepare(`
-      INSERT OR REPLACE INTO matches (
-        id, matchType, partyCount, cycle, listingIds, totalAbsoluteBoot,
-        locationScoreKm, matchScore, verificationStatus, status, explanation,
-        reasons, exchangeLegs, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reviewed', 'proposed', ?, ?, ?, ?, ?)
-    `).run(
-      targetMatch.id,
-      targetMatch.partyCount === 2 ? "direct" : "3-party",
-      targetMatch.partyCount,
-      JSON.stringify(targetMatch.cycle),
-      JSON.stringify(targetMatch.listingIds),
-      targetMatch.totalAbsoluteBoot,
-      targetMatch.locationScoreKm,
-      targetMatch.matchScore,
-      targetMatch.explanation,
-      JSON.stringify(targetMatch.reasons),
-      JSON.stringify(targetMatch.exchangeLegs),
-      targetMatch.createdAt,
-      new Date().toISOString()
-    );
+      db.prepare(`
+        INSERT OR REPLACE INTO matches (
+          id, matchType, partyCount, cycle, listingIds, totalAbsoluteBoot,
+          locationScoreKm, matchScore, verificationStatus, status, explanation,
+          reasons, exchangeLegs, createdAt, updatedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reviewed', 'proposed', ?, ?, ?, ?, ?)
+      `).run(
+        targetMatch.id,
+        targetMatch.partyCount === 2 ? "direct" : "3-party",
+        targetMatch.partyCount,
+        JSON.stringify(targetMatch.cycle),
+        JSON.stringify(targetMatch.listingIds),
+        targetMatch.totalAbsoluteBoot,
+        targetMatch.locationScoreKm,
+        targetMatch.matchScore,
+        targetMatch.explanation,
+        JSON.stringify(targetMatch.reasons),
+        JSON.stringify(targetMatch.exchangeLegs),
+        targetMatch.createdAt,
+        new Date().toISOString()
+      );
 
-    // Initialize responses to pending
-    const insertResponse = db.prepare(`
-      INSERT OR REPLACE INTO match_responses (id, matchId, listingId, ownerId, decision, respondedAt)
-      VALUES (?, ?, ?, ?, 'pending', NULL)
-    `);
+      const insertParticipant = db.prepare(`
+        INSERT OR REPLACE INTO match_participants (
+          id, matchId, listingId, ownerId, ownerName, givesAssetId, givesPropertyType,
+          givesValue, receivesAssetId, receivesPropertyType, receivesValue, amount,
+          action, cashDifference, explanation
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
 
-    for (const boot of targetMatch.boots) {
-      insertResponse.run(`${targetMatch.id}-${boot.listingId}`, targetMatch.id, boot.listingId, boot.ownerId);
-    }
+      for (const boot of targetMatch.boots) {
+        insertParticipant.run(
+          `${targetMatch.id}-${boot.listingId}`,
+          targetMatch.id,
+          boot.listingId,
+          boot.ownerId,
+          boot.ownerName,
+          boot.givesAssetId,
+          boot.givesPropertyType,
+          boot.givesValue,
+          boot.receivesAssetId,
+          boot.receivesPropertyType,
+          boot.receivesValue,
+          boot.amount,
+          boot.action,
+          boot.cashDifference,
+          boot.explanation
+        );
+      }
 
-    // Audit log
-    db.prepare(`
-      INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
-      VALUES (?, 'match', ?, 'propose_match', ?, 'system', ?)
-    `).run(`log-${Date.now()}`, targetMatch.id, JSON.stringify({ listingIds: targetMatch.listingIds }), new Date().toISOString());
+      const insertResponse = db.prepare(`
+        INSERT OR REPLACE INTO match_responses (id, matchId, listingId, ownerId, decision, respondedAt)
+        VALUES (?, ?, ?, ?, 'pending', NULL)
+      `);
+
+      for (const boot of targetMatch.boots) {
+        insertResponse.run(`${targetMatch.id}-${boot.listingId}`, targetMatch.id, boot.listingId, boot.ownerId);
+      }
+
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'match', ?, 'propose_match', ?, ?, ?)
+      `).run(
+        `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        targetMatch.id,
+        JSON.stringify({ listingIds: targetMatch.listingIds, initiatedBy: req.user!.name }),
+        req.user!.name,
+        new Date().toISOString()
+      );
+    });
 
     res.json({
       success: true,
@@ -741,7 +720,7 @@ apiRouter.post("/workflow/propose", (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post("/workflow/respond", (req: Request, res: Response) => {
+apiRouter.post("/workflow/respond", requireAuth, requireRole("owner", "admin"), (req: Request, res: Response) => {
   try {
     const { matchId, listingId, decision } = req.body;
 
@@ -752,7 +731,6 @@ apiRouter.post("/workflow/respond", (req: Request, res: Response) => {
       });
     }
 
-    const allListings = getAllDbListings();
     const storedMatchRow = db.prepare("SELECT * FROM matches WHERE id = ?").get(matchId) as { status: string; listingIds: string } | undefined;
 
     if (!storedMatchRow) {
@@ -763,6 +741,19 @@ apiRouter.post("/workflow/respond", (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         error: `Match ${matchId} is not open for responses (current status: ${storedMatchRow.status}).`
+      });
+    }
+
+    // Check listing and ownership
+    const listing = getDbListingById(listingId);
+    if (!listing) {
+      return res.status(404).json({ success: false, error: `Listing ${listingId} not found.` });
+    }
+
+    if (req.user!.role !== "admin" && listing.ownerId !== req.user!.id) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden: You cannot respond on behalf of another property owner."
       });
     }
 
@@ -777,66 +768,74 @@ apiRouter.post("/workflow/respond", (req: Request, res: Response) => {
     }
 
     const now = new Date().toISOString();
-
-    // Update response
-    db.prepare(`
-      UPDATE match_responses SET decision = ?, respondedAt = ?
-      WHERE matchId = ? AND listingId = ?
-    `).run(decision, now, matchId, listingId);
-
     const participantIds = JSON.parse(storedMatchRow.listingIds) as string[];
 
-    if (decision === "declined") {
-      // Decline releases all locks immediately
-      db.prepare("UPDATE matches SET status = 'declined', updatedAt = ? WHERE id = ?").run(now, matchId);
-      const unlock = db.prepare("UPDATE listings SET locked = 0 WHERE id = ?");
-      for (const id of participantIds) {
-        unlock.run(id);
+    const result = runInTransaction(() => {
+      // Update response
+      db.prepare(`
+        UPDATE match_responses SET decision = ?, respondedAt = ?
+        WHERE matchId = ? AND listingId = ?
+      `).run(decision, now, matchId, listingId);
+
+      if (decision === "declined") {
+        // Decline releases all locks immediately
+        db.prepare("UPDATE matches SET status = 'declined', updatedAt = ? WHERE id = ?").run(now, matchId);
+        const unlock = db.prepare("UPDATE listings SET locked = 0 WHERE id = ?");
+        for (const id of participantIds) {
+          unlock.run(id);
+        }
+
+        db.prepare(`
+          INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+          VALUES (?, 'match', ?, 'match_declined', ?, ?, ?)
+        `).run(`log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, matchId, JSON.stringify({ declinedBy: listingId, owner: req.user!.name }), req.user!.name, now);
+
+        return {
+          success: true,
+          message: `Exchange proposal declined by participant ${listingId}. All participant asset locks released.`,
+          matchStatus: "declined"
+        };
+      }
+
+      // If accepted, check whether all participants have accepted
+      const allResponses = db.prepare("SELECT decision FROM match_responses WHERE matchId = ?").all(matchId) as Array<{ decision: string }>;
+      const allAccepted = allResponses.length > 0 && allResponses.every((r) => r.decision === "accepted");
+
+      if (allAccepted) {
+        db.prepare("UPDATE matches SET status = 'accepted', updatedAt = ? WHERE id = ?").run(now, matchId);
+
+        db.prepare(`
+          INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+          VALUES (?, 'match', ?, 'match_unanimously_accepted', ?, ?, ?)
+        `).run(`log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, matchId, JSON.stringify({ participantIds }), req.user!.name, now);
+
+        return {
+          success: true,
+          message: "Unanimous acceptance achieved! Match confirmed. Escrow asset locks retained.",
+          matchStatus: "accepted"
+        };
       }
 
       db.prepare(`
         INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
-        VALUES (?, 'match', ?, 'match_declined', ?, ?, ?)
-      `).run(`log-${Date.now()}`, matchId, JSON.stringify({ declinedBy: listingId }), listingId, now);
+        VALUES (?, 'match', ?, 'match_accepted_by_participant', ?, ?, ?)
+      `).run(`log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, matchId, JSON.stringify({ acceptedBy: listingId }), req.user!.name, now);
 
-      return res.json({
+      return {
         success: true,
-        message: `Exchange proposal declined by participant ${listingId}. All participant asset locks released.`,
-        matchStatus: "declined"
-      });
-    }
-
-    // If accepted, check whether all participants have accepted
-    const allResponses = db.prepare("SELECT decision FROM match_responses WHERE matchId = ?").all(matchId) as Array<{ decision: string }>;
-    const allAccepted = allResponses.every((r) => r.decision === "accepted");
-
-    if (allAccepted) {
-      db.prepare("UPDATE matches SET status = 'accepted', updatedAt = ? WHERE id = ?").run(now, matchId);
-
-      db.prepare(`
-        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
-        VALUES (?, 'match', ?, 'match_unanimously_accepted', ?, 'system', ?)
-      `).run(`log-${Date.now()}`, matchId, JSON.stringify({ participantIds }), now);
-
-      return res.json({
-        success: true,
-        message: "Unanimous acceptance achieved! Match confirmed. Escrow asset locks retained.",
-        matchStatus: "accepted"
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: `Acceptance recorded for ${listingId}. Awaiting remaining participant responses.`,
-      matchStatus: "proposed"
+        message: `Acceptance recorded for ${listingId}. Awaiting remaining participant responses.`,
+        matchStatus: "proposed"
+      };
     });
+
+    res.json(result);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });
   }
 });
 
-apiRouter.post("/workflow/expire", (req: Request, res: Response) => {
+apiRouter.post("/workflow/expire", requireAuth, requireRole("owner", "admin"), (req: Request, res: Response) => {
   try {
     const { matchId } = req.body;
     if (!matchId) return res.status(400).json({ success: false, error: "matchId required" });
@@ -846,14 +845,36 @@ apiRouter.post("/workflow/expire", (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: "Match proposal not in open state." });
     }
 
-    const now = new Date().toISOString();
-    db.prepare("UPDATE matches SET status = 'expired', updatedAt = ? WHERE id = ?").run(now, matchId);
-
     const listingIds = JSON.parse(stored.listingIds) as string[];
-    const unlock = db.prepare("UPDATE listings SET locked = 0 WHERE id = ?");
-    for (const id of listingIds) {
-      unlock.run(id);
+
+    if (req.user!.role !== "admin") {
+      // Must own at least one listing in the match
+      const userOwnsListing = listingIds.some((lid) => {
+        const l = getDbListingById(lid);
+        return l?.ownerId === req.user!.id;
+      });
+      if (!userOwnsListing) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden: You can only expire proposals involving your properties."
+        });
+      }
     }
+
+    const now = new Date().toISOString();
+    runInTransaction(() => {
+      db.prepare("UPDATE matches SET status = 'expired', updatedAt = ? WHERE id = ?").run(now, matchId);
+
+      const unlock = db.prepare("UPDATE listings SET locked = 0 WHERE id = ?");
+      for (const id of listingIds) {
+        unlock.run(id);
+      }
+
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'match', ?, 'match_expired', ?, ?, ?)
+      `).run(`log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, matchId, JSON.stringify({ listingIds }), req.user!.name, now);
+    });
 
     res.json({ success: true, message: "Match expired and locks released.", matchStatus: "expired" });
   } catch (err: unknown) {
@@ -865,9 +886,14 @@ apiRouter.post("/workflow/expire", (req: Request, res: Response) => {
 // ==========================================
 // 7. Proposals List & Audit Activity
 // ==========================================
-apiRouter.get("/proposals", (req: Request, res: Response) => {
+apiRouter.get("/proposals", requireAuth, (req: Request, res: Response) => {
   try {
-    const { status, ownerId } = req.query;
+    // Brokers do not have access to private swap proposals
+    if (req.user!.role === "broker") {
+      return res.json({ success: true, count: 0, data: [] });
+    }
+
+    const { status } = req.query;
     let query = "SELECT * FROM matches WHERE 1=1";
     const params: unknown[] = [];
     if (status && typeof status === "string" && status !== "all") {
@@ -902,16 +928,34 @@ apiRouter.get("/proposals", (req: Request, res: Response) => {
       }>;
       const participantsRows = db.prepare("SELECT * FROM match_participants WHERE matchId = ?").all(m.id) as any[];
 
-      const participants = participantsRows.map((p) => {
-        const listing = getDbListingById(p.listingId);
-        const resp = responsesRows.find((r) => r.listingId === p.listingId);
-        return {
-          ...p,
-          response: resp ? resp.decision : "pending",
-          respondedAt: resp?.respondedAt || null,
-          ownedProperty: listing
-        };
-      });
+      let participants: any[] = [];
+      if (participantsRows.length > 0) {
+        participants = participantsRows.map((p) => {
+          const listing = getDbListingById(p.listingId);
+          const resp = responsesRows.find((r) => r.listingId === p.listingId);
+          return {
+            ...p,
+            response: resp ? resp.decision : "pending",
+            respondedAt: resp?.respondedAt || null,
+            ownedProperty: listing
+          };
+        });
+      } else {
+        // Fallback reconstruction if match_participants wasn't seeded for this match
+        participants = listingIds.map((lid) => {
+          const listing = getDbListingById(lid);
+          const resp = responsesRows.find((r) => r.listingId === lid);
+          return {
+            matchId: m.id,
+            listingId: lid,
+            ownerId: listing?.ownerId || "",
+            ownerName: listing?.ownerName || "",
+            response: resp ? resp.decision : "pending",
+            respondedAt: resp?.respondedAt || null,
+            ownedProperty: listing
+          };
+        });
+      }
 
       return {
         id: m.id,
@@ -933,8 +977,21 @@ apiRouter.get("/proposals", (req: Request, res: Response) => {
     });
 
     let filtered = proposals;
-    if (ownerId && typeof ownerId === "string") {
-      filtered = proposals.filter((p) => p.participants.some((part: any) => part.ownerId === ownerId));
+    if (req.user!.role === "owner") {
+      // Owners can ONLY see proposals where they own at least one participating property
+      filtered = proposals.filter((p) =>
+        p.participants.some((part: any) => part.ownerId === req.user!.id) ||
+        p.listingIds.some((lid) => {
+          const l = getDbListingById(lid);
+          return l?.ownerId === req.user!.id;
+        })
+      );
+    } else if (req.user!.role === "admin") {
+      // Admin can optionally filter by query param ownerId
+      const ownerId = req.query.ownerId;
+      if (ownerId && typeof ownerId === "string") {
+        filtered = proposals.filter((p) => p.participants.some((part: any) => part.ownerId === ownerId));
+      }
     }
 
     res.json({ success: true, count: filtered.length, data: filtered });
@@ -944,20 +1001,51 @@ apiRouter.get("/proposals", (req: Request, res: Response) => {
   }
 });
 
-apiRouter.get("/activity", (req: Request, res: Response) => {
+apiRouter.get("/activity", requireAuth, (req: Request, res: Response) => {
   try {
     const { entityType, limit } = req.query;
+    const sanitizedLimit = Math.min(Math.max(1, Number(limit) || 50), 100);
+
     let query = "SELECT * FROM audit_logs WHERE 1=1";
     const params: unknown[] = [];
+
     if (entityType && typeof entityType === "string" && entityType !== "all") {
       query += " AND entityType = ?";
       params.push(entityType);
     }
-    query += " ORDER BY timestamp DESC";
-    if (limit) {
-      query += ` LIMIT ${Number(limit)}`;
+
+    if (req.user!.role === "admin") {
+      // Admin sees global logs
+      query += " ORDER BY timestamp DESC LIMIT ?";
+      params.push(sanitizedLimit);
+      const rows = db.prepare(query).all(...params);
+      return res.json({ success: true, count: rows.length, data: rows });
+    }
+
+    if (req.user!.role === "broker") {
+      // Broker sees activity performed by them or review actions
+      query += " AND (performedBy = ? OR performedBy = ? OR action LIKE '%review%') ORDER BY timestamp DESC LIMIT ?";
+      params.push(req.user!.name, req.user!.id, sanitizedLimit);
+      const rows = db.prepare(query).all(...params);
+      return res.json({ success: true, count: rows.length, data: rows });
+    }
+
+    // Owner sees only their own activity and logs related to their properties or proposals
+    const ownerListings = db.prepare("SELECT id FROM listings WHERE ownerId = ?").all(req.user!.id) as Array<{ id: string }>;
+    const listingIds = ownerListings.map((l) => l.id);
+
+    const ownerProposals = db.prepare("SELECT matchId FROM match_participants WHERE ownerId = ?").all(req.user!.id) as Array<{ matchId: string }>;
+    const matchIds = ownerProposals.map((m) => m.matchId);
+
+    const relevantEntityIds = Array.from(new Set([...listingIds, ...matchIds]));
+
+    if (relevantEntityIds.length === 0) {
+      query += " AND (performedBy = ? OR performedBy = ?) ORDER BY timestamp DESC LIMIT ?";
+      params.push(req.user!.name, req.user!.id, sanitizedLimit);
     } else {
-      query += " LIMIT 50";
+      const placeholders = relevantEntityIds.map(() => "?").join(", ");
+      query += ` AND (performedBy = ? OR performedBy = ? OR entityId IN (${placeholders})) ORDER BY timestamp DESC LIMIT ?`;
+      params.push(req.user!.name, req.user!.id, ...relevantEntityIds, sanitizedLimit);
     }
 
     const rows = db.prepare(query).all(...params);

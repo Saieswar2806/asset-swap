@@ -620,3 +620,23 @@ export function getDbListingById(id: string): Listing | null {
   const row = db.prepare(query).get(id) as unknown as DbListingRow | undefined;
   return row ? rowToListing(row) : null;
 }
+
+/**
+ * Executes a function atomically inside an SQLite transaction with write locking (BEGIN IMMEDIATE).
+ * Automatically rolls back on any error to prevent partial updates.
+ */
+export function runInTransaction<T>(action: () => T): T {
+  db.exec("BEGIN IMMEDIATE;");
+  try {
+    const result = action();
+    db.exec("COMMIT;");
+    return result;
+  } catch (err) {
+    try {
+      db.exec("ROLLBACK;");
+    } catch {
+      // Ignored if already rolled back
+    }
+    throw err;
+  }
+}

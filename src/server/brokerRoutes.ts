@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { db, getDbListingById, rowToListing, type DbListingRow } from "./db.js";
+import { db, getDbListingById, rowToListing, runInTransaction, type DbListingRow } from "./db.js";
 import { requireAuth, requireRole } from "./auth.js";
 
 export const brokerRouter = Router();
@@ -104,41 +104,43 @@ brokerRouter.post("/listings/:id/review", (req: Request, res: Response) => {
         });
       }
 
-      // Update listing to reviewed
-      db.prepare(`
-        UPDATE listings SET
-          status = 'reviewed',
-          reviewedValue = ?,
-          rejectionReason = NULL,
-          updatedAt = ?
-        WHERE id = ?
-      `).run(val, now, id);
+      runInTransaction(() => {
+        // Update listing to reviewed
+        db.prepare(`
+          UPDATE listings SET
+            status = 'reviewed',
+            reviewedValue = ?,
+            rejectionReason = NULL,
+            updatedAt = ?
+          WHERE id = ?
+        `).run(val, now, id);
 
-      // Record audit review
-      db.prepare(`
-        INSERT INTO property_reviews (id, listingId, reviewerId, reviewerName, reviewedValue, internalNotes, action, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?, 'approved', ?)
-      `).run(
-        `rev-${Date.now()}`,
-        id,
-        broker.id,
-        broker.name,
-        val,
-        internalNotes || "Broker guidance valuation and physical survey confirmed.",
-        now
-      );
+        // Record audit review
+        db.prepare(`
+          INSERT INTO property_reviews (id, listingId, reviewerId, reviewerName, reviewedValue, internalNotes, action, createdAt)
+          VALUES (?, ?, ?, ?, ?, ?, 'approved', ?)
+        `).run(
+          `rev-${Date.now()}`,
+          id,
+          broker.id,
+          broker.name,
+          val,
+          internalNotes || "Broker guidance valuation and physical survey confirmed.",
+          now
+        );
 
-      // Audit log
-      db.prepare(`
-        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
-        VALUES (?, 'listing', ?, 'broker_valuation_approved', ?, ?, ?)
-      `).run(
-        `log-${Date.now()}`,
-        id,
-        JSON.stringify({ reviewedValue: val, brokerId: broker.id, brokerName: broker.name, internalNotes }),
-        broker.name,
-        now
-      );
+        // Audit log
+        db.prepare(`
+          INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+          VALUES (?, 'listing', ?, 'broker_valuation_approved', ?, ?, ?)
+        `).run(
+          `log-${Date.now()}`,
+          id,
+          JSON.stringify({ reviewedValue: val, brokerId: broker.id, brokerName: broker.name, internalNotes }),
+          broker.name,
+          now
+        );
+      });
 
       const updated = getDbListingById(id);
       return res.json({
@@ -157,36 +159,38 @@ brokerRouter.post("/listings/:id/review", (req: Request, res: Response) => {
         });
       }
 
-      db.prepare(`
-        UPDATE listings SET
-          status = 'rejected',
-          rejectionReason = ?,
-          updatedAt = ?
-        WHERE id = ?
-      `).run(reason, now, id);
+      runInTransaction(() => {
+        db.prepare(`
+          UPDATE listings SET
+            status = 'rejected',
+            rejectionReason = ?,
+            updatedAt = ?
+          WHERE id = ?
+        `).run(reason, now, id);
 
-      db.prepare(`
-        INSERT INTO property_reviews (id, listingId, reviewerId, reviewerName, reviewedValue, internalNotes, action, createdAt)
-        VALUES (?, ?, ?, ?, 0, ?, 'rejected', ?)
-      `).run(
-        `rev-${Date.now()}`,
-        id,
-        broker.id,
-        broker.name,
-        reason,
-        now
-      );
+        db.prepare(`
+          INSERT INTO property_reviews (id, listingId, reviewerId, reviewerName, reviewedValue, internalNotes, action, createdAt)
+          VALUES (?, ?, ?, ?, 0, ?, 'rejected', ?)
+        `).run(
+          `rev-${Date.now()}`,
+          id,
+          broker.id,
+          broker.name,
+          reason,
+          now
+        );
 
-      db.prepare(`
-        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
-        VALUES (?, 'listing', ?, 'broker_valuation_rejected', ?, ?, ?)
-      `).run(
-        `log-${Date.now()}`,
-        id,
-        JSON.stringify({ rejectionReason: reason, brokerId: broker.id }),
-        broker.name,
-        now
-      );
+        db.prepare(`
+          INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+          VALUES (?, 'listing', ?, 'broker_valuation_rejected', ?, ?, ?)
+        `).run(
+          `log-${Date.now()}`,
+          id,
+          JSON.stringify({ rejectionReason: reason, brokerId: broker.id }),
+          broker.name,
+          now
+        );
+      });
 
       const updated = getDbListingById(id);
       return res.json({
