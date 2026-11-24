@@ -83,7 +83,11 @@ authRouter.post("/login", (req: Request, res: Response) => {
       success: true,
       message: "Login successful.",
       token: session.token,
-      user: safeUser
+      user: safeUser,
+      data: {
+        token: session.token,
+        user: safeUser
+      }
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -194,7 +198,11 @@ authRouter.post("/register", (req: Request, res: Response) => {
       success: true,
       message: "Owner account registered successfully.",
       token: session.token,
-      user: newUser
+      user: newUser,
+      data: {
+        token: session.token,
+        user: newUser
+      }
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -281,7 +289,11 @@ authRouter.post("/broker-apply", (req: Request, res: Response) => {
       success: true,
       message: "Broker registration application submitted successfully. Your account is currently pending administrator verification.",
       brokerId,
-      user: newBrokerUser
+      user: newBrokerUser,
+      data: {
+        brokerId,
+        user: newBrokerUser
+      }
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -302,7 +314,8 @@ authRouter.get("/me", (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    user: req.user
+    user: req.user,
+    data: req.user
   });
 });
 
@@ -379,7 +392,8 @@ authRouter.put("/profile", requireAuth, (req: Request, res: Response) => {
     res.json({
       success: true,
       message: "Profile updated successfully.",
-      user: updatedUser
+      user: updatedUser,
+      data: updatedUser
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

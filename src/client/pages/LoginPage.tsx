@@ -25,8 +25,16 @@ export const LoginPage: React.FC = () => {
       if (user.role === "admin") {
         navigate("/admin/dashboard");
       } else if (user.role === "broker") {
+        if (user.status !== "active") {
+          setError(`Broker account status is '${user.status}'. Access to the valuation queue and broker dashboard is restricted until verified and approved by an administrator.`);
+          return;
+        }
         navigate("/broker/dashboard");
       } else {
+        if (user.status !== "active") {
+          setError(`Account status is '${user.status}'. Please contact system administrator.`);
+          return;
+        }
         navigate("/owner/dashboard");
       }
     } catch (err: any) {
@@ -164,10 +172,22 @@ export const LoginPage: React.FC = () => {
                 className="text-left px-2.5 py-1.5 rounded-lg border border-purple-200 bg-purple-50 hover:bg-purple-100 flex items-center justify-between text-purple-900 transition-colors"
               >
                 <div>
-                  <span className="font-bold block">Administrator (Kavitha Murthy)</span>
+                  <span className="font-bold block">Administrator</span>
                   <span className="text-[10px] text-purple-700">admin@asset-swap.local</span>
                 </div>
                 <span className="text-[10px] font-mono font-bold bg-purple-200/60 px-1.5 py-0.5 rounded">Admin</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => fillDemoAccount("kavitha.murthy@broker.local", "Broker@123")}
+                className="text-left px-2.5 py-1.5 rounded-lg border border-teal-200 bg-teal-50 hover:bg-teal-100 flex items-center justify-between text-teal-900 transition-colors"
+              >
+                <div>
+                  <span className="font-bold block">Approved Broker (Kavitha Murthy)</span>
+                  <span className="text-[10px] text-teal-700">kavitha.murthy@broker.local</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold bg-teal-200/60 px-1.5 py-0.5 rounded">Broker</span>
               </button>
 
               <button
@@ -180,6 +200,18 @@ export const LoginPage: React.FC = () => {
                   <span className="text-[10px] text-teal-700">suresh.rao@broker.local</span>
                 </div>
                 <span className="text-[10px] font-mono font-bold bg-teal-200/60 px-1.5 py-0.5 rounded">Broker</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => fillDemoAccount("rajesh.patel@broker.local", "Broker@123")}
+                className="text-left px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 flex items-center justify-between text-amber-900 transition-colors"
+              >
+                <div>
+                  <span className="font-bold block">Pending Broker (Rajesh Patel)</span>
+                  <span className="text-[10px] text-amber-700">rajesh.patel@broker.local</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold bg-amber-200/60 px-1.5 py-0.5 rounded">Pending</span>
               </button>
 
               <button

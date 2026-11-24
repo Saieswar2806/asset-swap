@@ -1,9 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { db, getAllDbListings, getDbListingById, rowToListing, type DbListingRow } from "../src/server/db.js";
 import { findMatches } from "../src/matcher.js";
 import { MatchWorkflow } from "../src/workflow.js";
 
 describe("Database Repository & Persistence Unit Tests", () => {
+  beforeEach(() => {
+    try {
+      db.prepare("UPDATE listings SET locked = 0 WHERE locked = 1").run();
+    } catch {
+      // Ignored
+    }
+  });
   it("Database is populated with 100+ listings", () => {
     const listings = getAllDbListings();
     expect(listings.length).toBeGreaterThanOrEqual(100);

@@ -1,8 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import request from "supertest";
 import { app } from "../src/server/index.js";
+import { db } from "../src/server/db.js";
 
 describe("Asset Swap Full-Stack API Integration Tests", () => {
+  afterEach(() => {
+    // Keep listings unlocked between tests so test ordering does not deplete matching candidates
+    try {
+      db.prepare("UPDATE listings SET locked = 0 WHERE locked = 1").run();
+    } catch {
+      // Ignored
+    }
+  });
   it("GET /health returns healthy status", async () => {
     const res = await request(app).get("/health");
     expect(res.status).toBe(200);

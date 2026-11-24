@@ -2,51 +2,93 @@ import type { ApiResponse, DashboardStats, Listing, Match, User } from "./types.
 
 const BASE_URL = "/api";
 
+export interface AuthResult {
+  user: User;
+  token: string;
+}
+
+/**
+ * Extracts authentication user and token from either top-level or nested response structures.
+ * Throws a meaningful error if the response is malformed or missing the user object.
+ */
+export function extractAuthResult(res: any): AuthResult {
+  if (!res || typeof res !== "object") {
+    throw new Error("Authentication failed: Empty or malformed response from server.");
+  }
+
+  const user = res.user || res.data?.user;
+  const token = res.token || res.data?.token || "";
+
+  if (!user || typeof user !== "object" || !user.id || !user.role) {
+    throw new Error("Authentication failed: Response missing valid user profile.");
+  }
+
+  return { user, token };
+}
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("asset_swap_token") : null;
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
-  const res = await fetch(`${BASE_URL}${url}`, {
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders,
-      ...options?.headers
-    },
-    ...options
-  });
-
-  const data = await res.json();
-  if (!res.ok || data.success === false) {
-    throw new Error(data.error || `HTTP error! status: ${res.status}`);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${url}`, {
+      credentials: "include",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+        ...(options?.headers as Record<string, string>)
+      }
+    });
+  } catch (networkErr: any) {
+    throw new Error(`Network error: ${networkErr?.message || "Failed to communicate with server."}`);
   }
-  return data;
+
+  let data: any;
+  const text = await res.text();
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { error: text || `HTTP error! status: ${res.status}` };
+  }
+
+  if (!res.ok || data.success === false) {
+    const errorMsg = data.error || data.message || `HTTP error! status: ${res.status}`;
+    const err = new Error(errorMsg);
+    (err as any).status = res.status;
+    (err as any).data = data;
+    throw err;
+  }
+  return data as T;
 }
 
 export const api = {
   // ==========================================
   // Authentication & Session
   // ==========================================
-  login: async (email: string, password: string): Promise<{ user: User; token: string }> => {
-    const res = await fetchJson<ApiResponse<{ user: User; token: string }>>("/auth/login", {
+  login: async (email: string, password: string): Promise<AuthResult> => {
+    const res = await fetchJson<any>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password })
     });
-    if (res.data?.token) {
-      localStorage.setItem("asset_swap_token", res.data.token);
+    const result = extractAuthResult(res);
+    if (result.token) {
+      localStorage.setItem("asset_swap_token", result.token);
     }
-    return res.data!;
+    return result;
   },
 
-  register: async (payload: { name: string; email: string; phone?: string; password: string; confirmPassword?: string }): Promise<{ user: User; token: string }> => {
-    const res = await fetchJson<ApiResponse<{ user: User; token: string }>>("/auth/register", {
+  register: async (payload: { name: string; email: string; phone?: string; password: string; confirmPassword?: string }): Promise<AuthResult> => {
+    const res = await fetchJson<any>("/auth/register", {
       method: "POST",
       body: JSON.stringify(payload)
     });
-    if (res.data?.token) {
-      localStorage.setItem("asset_swap_token", res.data.token);
+    const result = extractAuthResult(res);
+    if (result.token) {
+      localStorage.setItem("asset_swap_token", result.token);
     }
-    return res.data!;
+    return result;
   },
 
   applyBroker: async (payload: {
@@ -58,17 +100,25 @@ export const api = {
     licenseNumber: string;
     jurisdiction?: string;
     experienceYears?: number;
-  }): Promise<{ message: string; brokerId: string }> => {
-    return await fetchJson<{ success: boolean; message: string; brokerId: string }>("/auth/broker-apply", {
+  }): Promise<{ message: string; brokerId: string; user?: User }> => {
+    const res = await fetchJson<any>("/auth/broker-apply", {
       method: "POST",
       body: JSON.stringify(payload)
     });
+    const brokerId = res.brokerId || res.data?.brokerId || "";
+    const message = res.message || res.data?.message || "Broker application submitted.";
+    const user = res.user || res.data?.user;
+    return { message, brokerId, user };
   },
 
   getCurrentUser: async (): Promise<User | null> => {
     try {
       const res = await fetchJson<any>("/auth/me");
-      return res.user || res.data || null;
+      const user = res.user || res.data?.user || (res.data?.id ? res.data : null);
+      if (user && typeof user === "object" && user.id && user.role) {
+        return user;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -87,7 +137,11 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload)
     });
-    return res.user || res.data!;
+    const user = res.user || res.data?.user || res.data;
+    if (!user || typeof user !== "object" || !user.id || !user.role) {
+      throw new Error("Profile update failed: Invalid user data returned from server.");
+    }
+    return user;
   },
 
   // ==========================================

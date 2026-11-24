@@ -36,12 +36,18 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string): Promise<User> => {
     const res = await api.login(email, password);
+    if (!res || !res.user) {
+      throw new Error("Login failed: Invalid or missing user data from server.");
+    }
     setCurrentUser(res.user);
     return res.user;
   };
 
   const register = async (payload: { name: string; email: string; phone?: string; password: string; confirmPassword?: string }): Promise<User> => {
     const res = await api.register(payload);
+    if (!res || !res.user) {
+      throw new Error("Registration failed: Invalid or missing user data from server.");
+    }
     setCurrentUser(res.user);
     return res.user;
   };
