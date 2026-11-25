@@ -33,6 +33,8 @@ export type PropertyType =
 
 export type AreaUnit = "sq_ft" | "guntas" | "acres";
 
+export type ListingIntent = "swap" | "sell" | "both";
+
 export type VerificationStatus =
   | "draft"
   | "submitted"
@@ -47,6 +49,9 @@ export interface OwnerRequirement {
   maxDistanceKm?: number;
   minArea?: number;
   minAreaUnit?: AreaUnit;
+  minValue?: number;
+  maxValue?: number;
+  openToCashAdjustment?: boolean;
   maxCashToPay?: number;
   maxCashToReceive?: number;
 }
@@ -55,10 +60,13 @@ export interface Listing {
   id: string;
   ownerId?: string;
   ownerName: string;
+  title?: string;
   category?: AssetCategory;
   propertyType: PropertyType;
   district: string;
+  taluk?: string;
   locality: string;
+  pincode?: string;
   latitude?: number;
   longitude?: number;
   area: number;
@@ -67,8 +75,35 @@ export interface Listing {
   reviewedValue?: number;
   status: VerificationStatus;
   locked: boolean;
+  intent?: ListingIntent;
+  askingPrice?: number;
+  saleDescription?: string;
+  bedrooms?: number;
+  bathrooms?: number;
+  imageUrl?: string;
   wants: OwnerRequirement;
   metadata?: Record<string, unknown>;
+}
+
+export interface BuyerInquiry {
+  id: string;
+  listingId: string;
+  listingTitle?: string;
+  listingLocality?: string;
+  listingDistrict?: string;
+  listingPropertyType?: PropertyType;
+  askingPrice?: number;
+  sellerId: string;
+  sellerName?: string;
+  buyerId: string;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone?: string;
+  offerAmount?: number;
+  message: string;
+  status: "pending" | "contacted" | "closed";
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Boot {

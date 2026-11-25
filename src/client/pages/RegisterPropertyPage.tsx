@@ -1,9 +1,24 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Building2, FileText, CheckCircle2, ArrowRight, ArrowLeft, ShieldCheck, Tag, MapPin, Maximize2, AlertCircle } from "lucide-react";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import {
+  Building2,
+  CheckCircle2,
+  ArrowRight,
+  ArrowLeft,
+  ShieldCheck,
+  Tag,
+  MapPin,
+  Maximize2,
+  AlertCircle,
+  ArrowLeftRight,
+  ShoppingBag,
+  BedDouble,
+  Bath,
+  Coins
+} from "lucide-react";
 import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
-import type { PropertyType, AreaUnit } from "../types.js";
+import type { PropertyType, AreaUnit, ListingIntent } from "../types.js";
 import { formatCurrency } from "../components/PropertyCard.js";
 
 const DISTRICTS = [
@@ -15,17 +30,20 @@ const DISTRICTS = [
   "Chikkaballapur"
 ];
 
-const PROPERTY_TYPES: Array<{ id: PropertyType; label: string }> = [
-  { id: "agricultural_land", label: "Agricultural Land" },
-  { id: "plot_site", label: "Residential Plot / Site" },
-  { id: "apartment", label: "Apartment" },
-  { id: "independent_house", label: "Independent House / Villa" },
-  { id: "farmhouse", label: "Farmhouse" },
-  { id: "commercial", label: "Commercial Building / Space" }
+const PROPERTY_TYPES: Array<{ id: PropertyType; label: string; isResidential: boolean }> = [
+  { id: "apartment", label: "Apartment / Flat", isResidential: true },
+  { id: "independent_house", label: "Independent House / Villa", isResidential: true },
+  { id: "plot_site", label: "Residential Plot / Site", isResidential: false },
+  { id: "agricultural_land", label: "Agricultural Land", isResidential: false },
+  { id: "farmhouse", label: "Farmhouse / Estate", isResidential: true },
+  { id: "commercial", label: "Commercial Building / Shop", isResidential: false }
 ];
 
 export const RegisterPropertyPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialIntent = (searchParams.get("intent") as ListingIntent) || "swap";
+
   const { currentUser } = useUser();
 
   const [step, setStep] = useState<number>(1);
@@ -33,41 +51,66 @@ export const RegisterPropertyPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successId, setSuccessId] = useState<string | null>(null);
 
-  // Form State
-  const [formData, setFormData] = useState({
-    // Step 1: Details
+  // Intent: Swap, Sell, or Both
+  const [intent, setIntent] = useState<ListingIntent>(initialIntent);
+
+  // SECTION A: PROPERTY CURRENTLY OWNED
+  const [ownedData, setOwnedData] = useState({
     title: "",
     propertyType: "apartment" as PropertyType,
+    state: "Karnataka",
     district: "Bengaluru",
     taluk: "",
     locality: "",
     pincode: "",
+    approxValue: "",
     area: "",
     areaUnit: "sq_ft" as AreaUnit,
-    ownerDeclaredValue: "",
-
-    // Step 2: Information
+    bedrooms: "3",
+    bathrooms: "2",
     khataType: "A-Khata",
     surveyNumber: "",
     conversionStatus: "DC Converted",
     description: "",
-
-    // Step 3: Requirements
-    desiredPropertyTypes: ["independent_house", "plot_site"] as PropertyType[],
-    preferredDistricts: ["Bengaluru"],
-    preferredLocalities: "",
-    minArea: "",
-    minAreaUnit: "sq_ft" as AreaUnit,
-    maxCashToPay: "2000000",
-    maxCashToReceive: "2000000"
+    imageUrl: ""
   });
 
-  const updateField = (field: string, value: unknown) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+  // SECTION B: PROPERTY THE OWNER WANTS (Exchange Preferences)
+  const [wantedData, setWantedData] = useState({
+    desiredPropertyTypes: ["independent_house", "plot_site"] as PropertyType[],
+    preferredState: "Karnataka",
+    preferredDistricts: ["Bengaluru", "Ramanagara"],
+    preferredLocalities: "Whitefield, Indiranagar, Kanakapura Road",
+    minArea: "",
+    minAreaUnit: "sq_ft" as AreaUnit,
+    minValue: "",
+    maxValue: "",
+    openToCashAdjustment: true,
+    maxCashToPay: "2000000",
+    maxCashToReceive: "2000000",
+    additionalPreferences: ""
+  });
+
+  // SECTION C: SALE DETAILS (when intent is 'sell' or 'both')
+  const [saleData, setSaleData] = useState({
+    askingPrice: "",
+    saleDescription: ""
+  });
+
+  const updateOwned = (field: string, value: unknown) => {
+    setOwnedData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateWanted = (field: string, value: unknown) => {
+    setWantedData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateSale = (field: string, value: unknown) => {
+    setSaleData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleToggleDesiredType = (type: PropertyType) => {
-    setFormData((prev) => {
+    setWantedData((prev) => {
       const exists = prev.desiredPropertyTypes.includes(type);
       const updated = exists
         ? prev.desiredPropertyTypes.filter((t) => t !== type)
@@ -76,99 +119,132 @@ export const RegisterPropertyPage: React.FC = () => {
     });
   };
 
+  const currentTypeMeta = PROPERTY_TYPES.find((t) => t.id === ownedData.propertyType);
+  const isResidential = currentTypeMeta?.isResidential ?? false;
+
   const validateStep = (currentStep: number): boolean => {
     setError(null);
+
     if (currentStep === 1) {
-      if (!formData.title.trim()) {
+      // Intent selection always valid
+      return true;
+    }
+
+    if (currentStep === 2) {
+      // Validate Section A: Property Owned
+      if (!ownedData.title.trim()) {
         setError("Please enter a property title.");
         return false;
       }
-      if (!formData.locality.trim()) {
-        setError("Please enter the locality or village name.");
+      if (!ownedData.locality.trim()) {
+        setError("Please enter the locality or area name.");
         return false;
       }
-      const areaNum = Number(formData.area);
+      const areaNum = Number(ownedData.area);
       if (!areaNum || areaNum <= 0) {
         setError("Please enter a valid positive area.");
         return false;
       }
-      const valNum = Number(formData.ownerDeclaredValue);
+      const valNum = Number(ownedData.approxValue);
       if (!valNum || valNum <= 0) {
-        setError("Please enter a valid positive owner-declared value.");
+        setError("Please enter an approximate market value.");
         return false;
       }
-    }
-
-    if (currentStep === 2) {
-      if (!formData.surveyNumber.trim()) {
-        setError("Please enter survey number / site number.");
-        return false;
-      }
+      return true;
     }
 
     if (currentStep === 3) {
-      if (formData.desiredPropertyTypes.length === 0) {
-        setError("Please select at least one desired property type for exchange.");
-        return false;
+      // Validate Section B: Property Wanted (if intent is swap or both)
+      if (intent === "swap" || intent === "both") {
+        if (wantedData.desiredPropertyTypes.length === 0) {
+          setError("Please select at least one desired property type you want in exchange.");
+          return false;
+        }
       }
+
+      // If intent is 'sell' or 'both', validate asking price
+      if (intent === "sell" || intent === "both") {
+        const askNum = Number(saleData.askingPrice || ownedData.approxValue);
+        if (!askNum || askNum <= 0) {
+          setError("Please enter a valid asking price for sale.");
+          return false;
+        }
+      }
+      return true;
     }
 
     return true;
   };
 
-  const nextStep = () => {
+  const handleNext = () => {
     if (validateStep(step)) {
-      setStep((s) => s + 1);
+      setStep((prev) => prev + 1);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
-  const prevStep = () => {
+  const handleBack = () => {
     setError(null);
-    setStep((s) => s - 1);
+    setStep((prev) => Math.max(1, prev - 1));
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleSubmit = async () => {
-    if (!validateStep(3)) return;
+    if (!validateStep(step)) return;
+
     setSubmitting(true);
     setError(null);
 
     try {
-      const preferredLocs = formData.preferredLocalities
-        .split(",")
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-
-      const payload = {
-        ownerId: currentUser?.id || "OWNER-NEW",
-        ownerName: currentUser?.name || "Property Owner",
-        title: formData.title,
-        propertyType: formData.propertyType,
-        district: formData.district,
-        taluk: formData.taluk || formData.district,
-        locality: formData.locality,
-        pincode: formData.pincode || "560001",
-        area: Number(formData.area),
-        areaUnit: formData.areaUnit,
-        ownerDeclaredValue: Number(formData.ownerDeclaredValue),
-        khataType: formData.khataType,
-        surveyNumber: formData.surveyNumber,
-        conversionStatus: formData.conversionStatus,
-        description: formData.description,
-        wants: {
-          propertyTypes: formData.desiredPropertyTypes,
-          preferredDistricts: formData.preferredDistricts,
-          preferredLocations: preferredLocs.length > 0 ? preferredLocs : [formData.district],
-          minArea: formData.minArea ? Number(formData.minArea) : undefined,
-          minAreaUnit: formData.minAreaUnit,
-          maxCashToPay: formData.maxCashToPay ? Number(formData.maxCashToPay) : 5000000,
-          maxCashToReceive: formData.maxCashToReceive ? Number(formData.maxCashToReceive) : 5000000
+      const payload: any = {
+        title: ownedData.title.trim(),
+        propertyType: ownedData.propertyType,
+        district: ownedData.district,
+        taluk: ownedData.taluk || undefined,
+        locality: ownedData.locality.trim(),
+        pincode: ownedData.pincode || "560001",
+        area: Number(ownedData.area),
+        areaUnit: ownedData.areaUnit,
+        ownerDeclaredValue: Number(ownedData.approxValue),
+        khataType: ownedData.khataType,
+        surveyNumber: ownedData.surveyNumber || undefined,
+        conversionStatus: ownedData.conversionStatus,
+        description: ownedData.description.trim() || undefined,
+        imageUrl: ownedData.imageUrl.trim() || undefined,
+        intent,
+        askingPrice: (intent === "sell" || intent === "both")
+          ? Number(saleData.askingPrice || ownedData.approxValue)
+          : undefined,
+        saleDescription: (intent === "sell" || intent === "both")
+          ? (saleData.saleDescription.trim() || undefined)
+          : undefined,
+        bedrooms: isResidential && ownedData.bedrooms ? Number(ownedData.bedrooms) : undefined,
+        bathrooms: isResidential && ownedData.bathrooms ? Number(ownedData.bathrooms) : undefined,
+        wants: (intent === "swap" || intent === "both") ? {
+          propertyTypes: wantedData.desiredPropertyTypes,
+          preferredDistricts: wantedData.preferredDistricts,
+          preferredLocations: wantedData.preferredLocalities
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          minArea: wantedData.minArea ? Number(wantedData.minArea) : undefined,
+          minAreaUnit: wantedData.minAreaUnit,
+          minValue: wantedData.minValue ? Number(wantedData.minValue) : undefined,
+          maxValue: wantedData.maxValue ? Number(wantedData.maxValue) : undefined,
+          openToCashAdjustment: wantedData.openToCashAdjustment,
+          maxCashToPay: wantedData.maxCashToPay ? Number(wantedData.maxCashToPay) : undefined,
+          maxCashToReceive: wantedData.maxCashToReceive ? Number(wantedData.maxCashToReceive) : undefined
+        } : {
+          propertyTypes: [],
+          preferredDistricts: [],
+          preferredLocations: []
         }
       };
 
       const result = await api.createListing(payload);
       setSuccessId(result.id);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (err: any) {
+      setError(err?.message || "Failed to register property.");
     } finally {
       setSubmitting(false);
     }
@@ -176,33 +252,41 @@ export const RegisterPropertyPage: React.FC = () => {
 
   if (successId) {
     return (
-      <div className="max-w-2xl mx-auto my-12 bg-white border border-slate-200 rounded-2xl p-8 shadow-sm text-center space-y-5">
-        <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
-          <CheckCircle2 className="w-8 h-8" />
-        </div>
-        <div className="space-y-2">
-          <span className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider block">
-            Listing Registered: #{successId}
-          </span>
-          <h2 className="text-2xl font-bold text-slate-900">Property Submitted for Broker Assessment</h2>
-          <p className="text-sm text-slate-600 max-w-md mx-auto">
-            Your property has entered the <span className="font-semibold text-blue-700">submitted</span> state. A local broker assessor will physically review documentation and sub-registrar guidance value before qualifying it for exchange matching.
+      <div className="max-w-2xl mx-auto py-12 px-4 text-center">
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-xs space-y-4">
+          <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900">Property Successfully Registered</h2>
+          <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+            Your property <strong>{ownedData.title}</strong> has been assigned ID{" "}
+            <span className="font-mono font-bold text-blue-600">{successId}</span> and queued for physical broker inspection and certified valuation.
           </p>
-        </div>
 
-        <div className="pt-4 flex flex-wrap justify-center gap-3">
-          <button
-            onClick={() => navigate("/my-properties")}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
-          >
-            View in My Properties
-          </button>
-          <button
-            onClick={() => navigate("/admin")}
-            className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all"
-          >
-            Review in Admin Panel (Demo)
-          </button>
+          <div className="pt-4 flex items-center justify-center gap-3">
+            <Link
+              to="/owner/dashboard"
+              className="px-5 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors shadow-xs"
+            >
+              Return to Owner Dashboard
+            </Link>
+            {intent !== "sell" && (
+              <Link
+                to="/swap"
+                className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors shadow-xs"
+              >
+                Explore Swap Matches
+              </Link>
+            )}
+            {intent !== "swap" && (
+              <Link
+                to="/sell"
+                className="px-5 py-2.5 bg-amber-600 text-white rounded-xl text-xs font-bold hover:bg-amber-700 transition-colors shadow-xs"
+              >
+                View Sell Portfolio
+              </Link>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -210,441 +294,662 @@ export const RegisterPropertyPage: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto py-6 space-y-6">
-      {/* Wizard Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Register Property for Exchange</h1>
-        <p className="text-sm text-slate-500">
-          List your real estate asset and define exchange preferences. New listings enter broker valuation review before matching.
-        </p>
-      </div>
-
-      {/* Progress Steps Header */}
-      <div className="grid grid-cols-4 gap-2 border-b border-slate-200 pb-4">
-        {[
-          { num: 1, title: "Property Details" },
-          { num: 2, title: "Legal & Land Info" },
-          { num: 3, title: "Exchange Wants" },
-          { num: 4, title: "Review & Submit" }
-        ].map((s) => (
-          <div
-            key={s.num}
-            className={`flex flex-col border-t-2 pt-2 text-xs transition-colors ${
-              step >= s.num ? "border-blue-600 text-blue-700 font-bold" : "border-slate-200 text-slate-400 font-medium"
-            }`}
-          >
-            <span className="text-[10px] uppercase font-semibold">Step 0{s.num}</span>
-            <span className="truncate">{s.title}</span>
+      {/* Step Indicator */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
+              Step {step} of 4
+            </span>
+            <h1 className="text-xl font-bold text-slate-900 mt-0.5">
+              {step === 1 && "Choose Transaction Intent"}
+              {step === 2 && "Section A: Property You Currently Own"}
+              {step === 3 && (intent === "sell" ? "Section B: Sale Terms & Asking Price" : "Section B: Property You Want (Exchange Preferences)")}
+              {step === 4 && "Review & Submit for Verification"}
+            </h1>
           </div>
-        ))}
+          <span className="text-xs font-semibold text-slate-400">
+            {step === 1 && "Intent"}
+            {step === 2 && "Property Owned"}
+            {step === 3 && (intent === "sell" ? "Sale Terms" : "Property Wanted")}
+            {step === 4 && "Review"}
+          </span>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="w-full bg-slate-100 h-1.5 rounded-full mt-4 overflow-hidden">
+          <div
+            className="bg-blue-600 h-full transition-all duration-300"
+            style={{ width: `${(step / 4) * 100}%` }}
+          />
+        </div>
       </div>
 
-      {/* Error Alert */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs font-semibold text-red-700">
-          <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+        <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Step Contents */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
-        {/* STEP 1: Property Details */}
-        {step === 1 && (
-          <div className="space-y-5">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-blue-600" />
-              Step 1: Basic Property Details
-            </h3>
+      {/* STEP 1: TRANSACTION INTENT */}
+      {step === 1 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">What is your intention for this property?</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Select how you would like to participate on Asset Swap. You are not forced to swap if you only wish to sell.
+            </p>
+          </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Property Title *
-                </label>
-                <input
-                  type="text"
-                  value={formData.title}
-                  onChange={(e) => updateField("title", e.target.value)}
-                  placeholder="e.g. Spacious 3BHK Apartment in Indiranagar / 2.5 Acre Farmland"
-                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Swap Only */}
+            <div
+              onClick={() => setIntent("swap")}
+              className={`border-2 rounded-2xl p-5 cursor-pointer transition-all flex flex-col justify-between ${
+                intent === "swap"
+                  ? "border-blue-600 bg-blue-50/50 shadow-xs"
+                  : "border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              <div className="space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                  <ArrowLeftRight className="w-5 h-5" />
+                </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Property Type *
-                  </label>
-                  <select
-                    value={formData.propertyType}
-                    onChange={(e) => updateField("propertyType", e.target.value)}
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {PROPERTY_TYPES.map((t) => (
-                      <option key={t.id} value={t.id}>{t.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    District (Karnataka) *
-                  </label>
-                  <select
-                    value={formData.district}
-                    onChange={(e) => updateField("district", e.target.value)}
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {DISTRICTS.map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Locality / Area *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.locality}
-                    onChange={(e) => updateField("locality", e.target.value)}
-                    placeholder="e.g. Harohalli / Indiranagar"
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Taluk
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.taluk}
-                    onChange={(e) => updateField("taluk", e.target.value)}
-                    placeholder="e.g. Kanakapura"
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    PIN Code
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.pincode}
-                    onChange={(e) => updateField("pincode", e.target.value)}
-                    placeholder="560038"
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Property Area *
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={formData.area}
-                    onChange={(e) => updateField("area", e.target.value)}
-                    placeholder="e.g. 2400 or 2.5"
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Area Unit *
-                  </label>
-                  <select
-                    value={formData.areaUnit}
-                    onChange={(e) => updateField("areaUnit", e.target.value)}
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="sq_ft">Square Feet (sq ft)</option>
-                    <option value="guntas">Guntas</option>
-                    <option value="acres">Acres</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Owner-Declared Value (₹ INR) *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-2.5 text-slate-400 font-semibold text-sm">₹</span>
-                  <input
-                    type="number"
-                    value={formData.ownerDeclaredValue}
-                    onChange={(e) => updateField("ownerDeclaredValue", e.target.value)}
-                    placeholder="e.g. 20000000 (2 Crores)"
-                    className="w-full pl-8 pr-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
-                  />
-                </div>
-                {formData.ownerDeclaredValue && Number(formData.ownerDeclaredValue) > 0 && (
-                  <p className="text-xs text-blue-600 font-semibold mt-1">
-                    Formatted: {formatCurrency(Number(formData.ownerDeclaredValue))}
+                  <h3 className="text-sm font-bold text-slate-900">Swap Only</h3>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Participate exclusively in 2-party and 3-party circular asset swaps. Cash is used only for valuation differences (Cash Boot).
                   </p>
-                )}
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-100 text-[11px] font-bold text-blue-600">
+                Collects Owned & Desired Properties
+              </div>
+            </div>
+
+            {/* Sell Only */}
+            <div
+              onClick={() => setIntent("sell")}
+              className={`border-2 rounded-2xl p-5 cursor-pointer transition-all flex flex-col justify-between ${
+                intent === "sell"
+                  ? "border-amber-600 bg-amber-50/50 shadow-xs"
+                  : "border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              <div className="space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Sell Only</h3>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    List your property for outright cash sale. Do not participate in asset swapping or circular exchange matching.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-100 text-[11px] font-bold text-amber-600">
+                Collects Owned Property & Asking Price
+              </div>
+            </div>
+
+            {/* Both Swap & Sell */}
+            <div
+              onClick={() => setIntent("both")}
+              className={`border-2 rounded-2xl p-5 cursor-pointer transition-all flex flex-col justify-between ${
+                intent === "both"
+                  ? "border-emerald-600 bg-emerald-50/50 shadow-xs"
+                  : "border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              <div className="space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                  <ShoppingBag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Both Swap & Sell</h3>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Maximum flexibility. Allow circular swap matches while simultaneously listing the property for outright purchase.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-100 text-[11px] font-bold text-emerald-600">
+                Collects Owned, Desired & Sale Terms
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* STEP 2: Legal & Land Information */}
-        {step === 2 && (
-          <div className="space-y-5">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-600" />
-              Step 2: Legal & Land Registry Information
-            </h3>
+      {/* STEP 2: SECTION A - PROPERTY CURRENTLY OWNED */}
+      {step === 2 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+          <div className="border-b border-slate-100 pb-3">
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-700">
+              Section A: Owned Asset
+            </span>
+            <h2 className="text-base font-bold text-slate-900 mt-1">Details of Property You Currently Own</h2>
+            <p className="text-xs text-slate-500">
+              Enter accurate details for physical broker verification and market valuation assessment.
+            </p>
+          </div>
 
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Khata / Revenue Record Type *
-                  </label>
-                  <select
-                    value={formData.khataType}
-                    onChange={(e) => updateField("khataType", e.target.value)}
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="A-Khata">A-Khata (City Corporation / BBMP)</option>
-                    <option value="B-Khata">B-Khata (Town Planning / Municipal)</option>
-                    <option value="E-Khata">E-Khata (Panchayat / Grama Thana)</option>
-                    <option value="Pahani / RTC">Pahani / RTC (Agricultural Revenue)</option>
-                  </select>
-                </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                Property Title *
+              </label>
+              <input
+                type="text"
+                required
+                value={ownedData.title}
+                onChange={(e) => updateOwned("title", e.target.value)}
+                placeholder="e.g. 3 BHK Luxury Apartment in Whitefield, Bengaluru"
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+            </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Survey / Property Identification No. *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.surveyNumber}
-                    onChange={(e) => updateField("surveyNumber", e.target.value)}
-                    placeholder="e.g. Sy. No. 124/3 or Site No. 45"
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Land Conversion / Zoning Status
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Property Type *
                 </label>
                 <select
-                  value={formData.conversionStatus}
-                  onChange={(e) => updateField("conversionStatus", e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={ownedData.propertyType}
+                  onChange={(e) => updateOwned("propertyType", e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 >
-                  <option value="DC Converted">DC Converted (Residential / Commercial)</option>
-                  <option value="Agricultural">Agricultural Land (General / Farm)</option>
-                  <option value="BDA Approved">BDA / BMRDA Approved Layout</option>
-                  <option value="MUDA Approved">MUDA Approved Layout</option>
-                  <option value="Gramathana">Gramathana Old Inhabitation</option>
+                  {PROPERTY_TYPES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Property Description & Access Details
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Approximate Market Value (₹ INR) *
                 </label>
-                <textarea
-                  rows={4}
-                  value={formData.description}
-                  onChange={(e) => updateField("description", e.target.value)}
-                  placeholder="Describe road access, boundary compound, water/electricity utilities, and documentation status..."
-                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                <input
+                  type="number"
+                  required
+                  value={ownedData.approxValue}
+                  onChange={(e) => updateOwned("approxValue", e.target.value)}
+                  placeholder="e.g. 12000000"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
             </div>
-          </div>
-        )}
 
-        {/* STEP 3: Exchange Requirements */}
-        {step === 3 && (
-          <div className="space-y-5">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Tag className="w-5 h-5 text-blue-600" />
-              Step 3: Desired Exchange Requirements
-            </h3>
-
-            <div className="space-y-4">
+            {/* Area & Unit */}
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                  What Property Categories Are You Willing to Receive? *
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Property Area *
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input
+                  type="number"
+                  step="any"
+                  required
+                  value={ownedData.area}
+                  onChange={(e) => updateOwned("area", e.target.value)}
+                  placeholder="e.g. 1850"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Measurement Unit *
+                </label>
+                <select
+                  value={ownedData.areaUnit}
+                  onChange={(e) => updateOwned("areaUnit", e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="sq_ft">Square Feet (sq ft)</option>
+                  <option value="guntas">Guntas</option>
+                  <option value="acres">Acres</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Conditional Bedrooms and Bathrooms ONLY for residential */}
+            {isResidential && (
+              <div className="grid grid-cols-2 gap-4 p-3 bg-blue-50/50 rounded-xl border border-blue-100">
+                <div>
+                  <label className="block text-xs font-bold text-blue-900 uppercase mb-1">
+                    Bedrooms
+                  </label>
+                  <select
+                    value={ownedData.bedrooms}
+                    onChange={(e) => updateOwned("bedrooms", e.target.value)}
+                    className="w-full px-3 py-1.5 border border-blue-200 rounded-lg text-xs bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  >
+                    <option value="1">1 BHK</option>
+                    <option value="2">2 BHK</option>
+                    <option value="3">3 BHK</option>
+                    <option value="4">4 BHK</option>
+                    <option value="5">5+ BHK</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-blue-900 uppercase mb-1">
+                    Bathrooms
+                  </label>
+                  <select
+                    value={ownedData.bathrooms}
+                    onChange={(e) => updateOwned("bathrooms", e.target.value)}
+                    className="w-full px-3 py-1.5 border border-blue-200 rounded-lg text-xs bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  >
+                    <option value="1">1 Bathroom</option>
+                    <option value="2">2 Bathrooms</option>
+                    <option value="3">3 Bathrooms</option>
+                    <option value="4">4+ Bathrooms</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Location Fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  District *
+                </label>
+                <select
+                  value={ownedData.district}
+                  onChange={(e) => updateOwned("district", e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  {DISTRICTS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Locality / Area *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={ownedData.locality}
+                  onChange={(e) => updateOwned("locality", e.target.value)}
+                  placeholder="e.g. Whitefield, Indiranagar"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  PIN Code
+                </label>
+                <input
+                  type="text"
+                  value={ownedData.pincode}
+                  onChange={(e) => updateOwned("pincode", e.target.value)}
+                  placeholder="e.g. 560066"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+            </div>
+
+            {/* Ownership & Document Verification Details */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                  Khata Type
+                </label>
+                <select
+                  value={ownedData.khataType}
+                  onChange={(e) => updateOwned("khataType", e.target.value)}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="A-Khata">A-Khata (Bruhat Bengaluru)</option>
+                  <option value="B-Khata">B-Khata</option>
+                  <option value="E-Khata">E-Khata (Gram Panchayat)</option>
+                  <option value="Pahani / RTC">Pahani / RTC (Agricultural)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                  Survey Number
+                </label>
+                <input
+                  type="text"
+                  value={ownedData.surveyNumber}
+                  onChange={(e) => updateOwned("surveyNumber", e.target.value)}
+                  placeholder="e.g. Sy. No. 142/2"
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                  Conversion Status
+                </label>
+                <select
+                  value={ownedData.conversionStatus}
+                  onChange={(e) => updateOwned("conversionStatus", e.target.value)}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                >
+                  <option value="DC Converted">DC Converted (Residential)</option>
+                  <option value="BDA Approved">BDA Approved</option>
+                  <option value="BMRDA Approved">BMRDA Approved</option>
+                  <option value="Agricultural">Agricultural (Green Belt)</option>
+                  <option value="Commercial Converted">Commercial Converted</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                Property Description
+              </label>
+              <textarea
+                rows={2}
+                value={ownedData.description}
+                onChange={(e) => updateOwned("description", e.target.value)}
+                placeholder="Key highlights, road width, facing direction, physical condition..."
+                className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 3: SECTION B - PROPERTY WANTED (EXCHANGE PREFERENCES) OR SALE TERMS */}
+      {step === 3 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5">
+          {intent === "sell" ? (
+            /* Sell only: Collect Asking Price & Sale Terms */
+            <div className="space-y-4">
+              <div className="border-b border-slate-100 pb-3">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 text-amber-800">
+                  Section B: Sale Terms
+                </span>
+                <h2 className="text-base font-bold text-slate-900 mt-1">Sale Details & Asking Price</h2>
+                <p className="text-xs text-slate-500">
+                  Specify your desired sale terms for outright cash purchase by vetted buyers.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Asking Price (₹ INR) *
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={saleData.askingPrice || ownedData.approxValue}
+                  onChange={(e) => updateSale("askingPrice", e.target.value)}
+                  placeholder="e.g. 12500000"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Sale Description / Terms
+                </label>
+                <textarea
+                  rows={3}
+                  value={saleData.saleDescription}
+                  onChange={(e) => updateSale("saleDescription", e.target.value)}
+                  placeholder="e.g. Clear marketable title, all tax receipts up to date, negotiable on upfront payment..."
+                  className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-600"
+                />
+              </div>
+            </div>
+          ) : (
+            /* Swap or Both: Collect Exchange Preferences (Property Wanted) */
+            <div className="space-y-4">
+              <div className="border-b border-slate-100 pb-3">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-800">
+                  Section B: Desired Exchange Preferences
+                </span>
+                <h2 className="text-base font-bold text-slate-900 mt-1">What Property Do You Want in Exchange?</h2>
+                <p className="text-xs text-slate-500">
+                  The matching engine compares what you own with what other owners want. Express flexible preferences.
+                </p>
+              </div>
+
+              {/* Desired Property Types (Multi-select) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
+                  Acceptable Property Types in Exchange *
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                   {PROPERTY_TYPES.map((t) => {
-                    const isChecked = formData.desiredPropertyTypes.includes(t.id);
+                    const isSelected = wantedData.desiredPropertyTypes.includes(t.id);
                     return (
-                      <label
+                      <button
+                        type="button"
                         key={t.id}
-                        className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                          isChecked
-                            ? "bg-blue-50/70 border-blue-300 text-blue-900 font-semibold"
-                            : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                        onClick={() => handleToggleDesiredType(t.id)}
+                        className={`p-2.5 rounded-xl border text-left text-xs font-semibold transition-all ${
+                          isSelected
+                            ? "bg-blue-50 border-blue-600 text-blue-900 shadow-xs"
+                            : "border-slate-200 text-slate-700 hover:bg-slate-50"
                         }`}
                       >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleToggleDesiredType(t.id)}
-                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                        />
-                        <span className="text-xs">{t.label}</span>
-                      </label>
+                        <div className="flex items-center justify-between">
+                          <span>{t.label}</span>
+                          {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />}
+                        </div>
+                      </button>
                     );
                   })}
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Preferred Localities / Areas (comma separated)
-                </label>
-                <input
-                  type="text"
-                  value={formData.preferredLocalities}
-                  onChange={(e) => updateField("preferredLocalities", e.target.value)}
-                  placeholder="e.g. Harohalli, Kanakapura, Indiranagar, Gokulam"
-                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Properties matching these localities receive top location preference scores (0 km transit).
-                </p>
-              </div>
-
+              {/* Preferred Locations */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Max Cash You Are Willing to Pay (Boot Limit)
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Preferred Localities / Areas
                   </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2.5 text-slate-400 font-semibold text-sm">₹</span>
-                    <input
-                      type="number"
-                      value={formData.maxCashToPay}
-                      onChange={(e) => updateField("maxCashToPay", e.target.value)}
-                      placeholder="e.g. 2000000"
-                      className="w-full pl-8 pr-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    value={wantedData.preferredLocalities}
+                    onChange={(e) => updateWanted("preferredLocalities", e.target.value)}
+                    placeholder="Comma separated: Indiranagar, Whitefield, Mysuru"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Max Cash You Are Willing to Receive (Boot Limit)
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Minimum Preferred Area (sq ft)
                   </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2.5 text-slate-400 font-semibold text-sm">₹</span>
+                  <input
+                    type="number"
+                    value={wantedData.minArea}
+                    onChange={(e) => updateWanted("minArea", e.target.value)}
+                    placeholder="e.g. 1500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  />
+                </div>
+              </div>
+
+              {/* Cash Boot Preferences */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Coins className="w-4 h-4 text-blue-600" />
+                    <span className="text-xs font-bold text-slate-900">Cash Boot Adjustment Flexibility</span>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={wantedData.openToCashAdjustment}
+                      onChange={(e) => updateWanted("openToCashAdjustment", e.target.checked)}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Open to Cash Boot Balance</span>
+                  </label>
+                </div>
+
+                {wantedData.openToCashAdjustment && (
+                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                        Max Cash Willing to Pay (₹)
+                      </label>
+                      <input
+                        type="number"
+                        value={wantedData.maxCashToPay}
+                        onChange={(e) => updateWanted("maxCashToPay", e.target.value)}
+                        placeholder="e.g. 2000000"
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                        Max Cash Willing to Receive (₹)
+                      </label>
+                      <input
+                        type="number"
+                        value={wantedData.maxCashToReceive}
+                        onChange={(e) => updateWanted("maxCashToReceive", e.target.value)}
+                        placeholder="e.g. 2000000"
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* If intent is 'both', also ask for asking price */}
+              {intent === "both" && (
+                <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-200 space-y-2">
+                  <span className="text-xs font-bold text-amber-900 block">Outright Sale Terms (Since 'Both' Selected):</span>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      Asking Price for Cash Purchase (₹ INR)
+                    </label>
                     <input
                       type="number"
-                      value={formData.maxCashToReceive}
-                      onChange={(e) => updateField("maxCashToReceive", e.target.value)}
-                      placeholder="e.g. 2000000"
-                      className="w-full pl-8 pr-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={saleData.askingPrice || ownedData.approxValue}
+                      onChange={(e) => updateSale("askingPrice", e.target.value)}
+                      placeholder="e.g. 12000000"
+                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-600"
                     />
                   </div>
                 </div>
-              </div>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* STEP 4: Review and Submit */}
-        {step === 4 && (
-          <div className="space-y-5">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-blue-600" />
-              Step 4: Review Submission Details
-            </h3>
-
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 text-xs">
-              <div className="flex justify-between border-b border-slate-200/80 pb-2">
-                <span className="text-slate-500">Property Title:</span>
-                <span className="font-bold text-slate-900">{formData.title}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200/80 pb-2">
-                <span className="text-slate-500">Property Type:</span>
-                <span className="font-semibold capitalize text-slate-800">{formData.propertyType.replace(/_/g, " ")}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200/80 pb-2">
-                <span className="text-slate-500">Location:</span>
-                <span className="font-semibold text-slate-800">{formData.locality}, {formData.district}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200/80 pb-2">
-                <span className="text-slate-500">Area:</span>
-                <span className="font-semibold text-slate-800">{formData.area} {formData.areaUnit}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200/80 pb-2">
-                <span className="text-slate-500">Owner-Declared Value:</span>
-                <span className="font-bold text-blue-800 text-sm">{formatCurrency(Number(formData.ownerDeclaredValue))}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200/80 pb-2">
-                <span className="text-slate-500">Khata / Survey No:</span>
-                <span className="font-semibold text-slate-800">{formData.khataType} | {formData.surveyNumber}</span>
-              </div>
-              <div className="flex justify-between pt-1">
-                <span className="text-slate-500">Desired In Exchange:</span>
-                <span className="font-semibold text-emerald-700 capitalize">
-                  {formData.desiredPropertyTypes.map((t) => t.replace(/_/g, " ")).join(", ")}
-                </span>
-              </div>
-            </div>
-
-            <div className="p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1">
-              <p className="font-bold flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-blue-600" />
-                Physical Broker Valuation Policy
-              </p>
-              <p className="text-[11px] text-blue-800 leading-relaxed">
-                Upon submission, your property enters the <strong>submitted</strong> state. A local certified broker will review revenue documents, sub-registrar guidance rates, and enter a verified broker valuation before exchange loops can be formed.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Wizard Navigation Footer */}
-        <div className="flex items-center justify-between border-t border-slate-200 pt-5">
-          {step > 1 ? (
-            <button
-              onClick={prevStep}
-              disabled={submitting}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
-            >
-              <ArrowLeft className="w-4 h-4" /> Previous
-            </button>
-          ) : <div />}
-
-          {step < 4 ? (
-            <button
-              onClick={nextStep}
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
-            >
-              Continue to Step {step + 1} <ArrowRight className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
-            >
-              {submitting ? "Submitting Property..." : "Confirm & Submit Property"}
-              <CheckCircle2 className="w-4 h-4" />
-            </button>
           )}
         </div>
+      )}
+
+      {/* STEP 4: REVIEW & SUBMIT */}
+      {step === 4 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5">
+          <div className="border-b border-slate-100 pb-3">
+            <h2 className="text-base font-bold text-slate-900">Review Registration Details</h2>
+            <p className="text-xs text-slate-500">
+              Verify your owned property and desired exchange terms before submitting for broker review.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Section A Summary */}
+            <div className="border border-slate-200 rounded-xl p-4 space-y-2.5 bg-slate-50/50 text-xs">
+              <span className="px-2 py-0.5 rounded font-bold uppercase text-[10px] bg-blue-100 text-blue-800">
+                Property You Own
+              </span>
+              <h4 className="font-bold text-slate-900 text-sm">{ownedData.title}</h4>
+              <div className="space-y-1 text-slate-600">
+                <div>Type: <strong>{ownedData.propertyType.replace("_", " ")}</strong></div>
+                <div>Location: <strong>{ownedData.locality}, {ownedData.district}</strong></div>
+                <div>Area: <strong>{ownedData.area} {ownedData.areaUnit}</strong></div>
+                {isResidential && <div>Specs: <strong>{ownedData.bedrooms} BHK, {ownedData.bathrooms} Baths</strong></div>}
+                <div>Declared Value: <strong>{formatCurrency(Number(ownedData.approxValue))}</strong></div>
+                <div>Khata: <strong>{ownedData.khataType}</strong></div>
+              </div>
+            </div>
+
+            {/* Section B / Intent Summary */}
+            <div className="border border-slate-200 rounded-xl p-4 space-y-2.5 bg-slate-50/50 text-xs">
+              <span className="px-2 py-0.5 rounded font-bold uppercase text-[10px] bg-emerald-100 text-emerald-800">
+                Configured Intent: {intent.toUpperCase()}
+              </span>
+
+              {intent !== "sell" ? (
+                <div className="space-y-1 text-slate-600">
+                  <span className="font-bold text-slate-900 block text-xs">What You Want in Exchange:</span>
+                  <div>Acceptable Types: <strong>{wantedData.desiredPropertyTypes.map((t) => t.replace("_", " ")).join(", ")}</strong></div>
+                  <div>Preferred Localities: <strong>{wantedData.preferredLocalities || "Flexible"}</strong></div>
+                  <div>Cash Boot Allowed: <strong>{wantedData.openToCashAdjustment ? "Yes" : "No"}</strong></div>
+                  {intent === "both" && (
+                    <div className="pt-2 border-t border-slate-200 text-amber-800">
+                      Outright Asking Price: <strong>{formatCurrency(Number(saleData.askingPrice || ownedData.approxValue))}</strong>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1 text-slate-600">
+                  <span className="font-bold text-slate-900 block text-xs">Sale Terms:</span>
+                  <div>Asking Price: <strong>{formatCurrency(Number(saleData.askingPrice || ownedData.approxValue))}</strong></div>
+                  <div>Terms: <strong>{saleData.saleDescription || "Direct outright sale"}</strong></div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-800 flex items-start gap-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold block">Human-in-the-Loop Broker Valuation Review</span>
+              <span className="text-[11px] mt-0.5 block">
+                Upon submission, a certified real estate broker will conduct physical document verification. Once approved to 'reviewed' status, your property will actively participate in matches and/or public sale exploration.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Navigation Buttons */}
+      <div className="flex items-center justify-between pt-2">
+        {step > 1 ? (
+          <button
+            type="button"
+            onClick={handleBack}
+            className="flex items-center gap-1.5 px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Previous Step</span>
+          </button>
+        ) : (
+          <div />
+        )}
+
+        {step < 4 ? (
+          <button
+            type="button"
+            onClick={handleNext}
+            className="flex items-center gap-1.5 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors shadow-xs"
+          >
+            <span>Proceed to Step {step + 1}</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={handleSubmit}
+            className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs disabled:opacity-50"
+          >
+            {submitting ? "Registering Property..." : "Submit Property for Verification"}
+            <CheckCircle2 className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </div>
   );

@@ -374,5 +374,99 @@ export const api = {
     const qs = query.toString() ? `?${query.toString()}` : "";
     const res = await fetchJson<ApiResponse<any[]>>(`/activity${qs}`);
     return res.data || [];
+  },
+
+  // ==========================================
+  // Buy Functionality
+  // ==========================================
+  getBuyListings: async (params?: {
+    search?: string;
+    propertyType?: string;
+    district?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    minArea?: number;
+    bedrooms?: number;
+  }): Promise<Listing[]> => {
+    const query = new URLSearchParams();
+    if (params?.search) query.set("search", params.search);
+    if (params?.propertyType) query.set("propertyType", params.propertyType);
+    if (params?.district) query.set("district", params.district);
+    if (params?.minPrice) query.set("minPrice", String(params.minPrice));
+    if (params?.maxPrice) query.set("maxPrice", String(params.maxPrice));
+    if (params?.minArea) query.set("minArea", String(params.minArea));
+    if (params?.bedrooms) query.set("bedrooms", String(params.bedrooms));
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    const res = await fetchJson<ApiResponse<Listing[]>>(`/buy/listings${qs}`);
+    return res.data || [];
+  },
+
+  getBuyListingById: async (id: string): Promise<Listing> => {
+    const res = await fetchJson<ApiResponse<Listing>>(`/buy/listings/${id}`);
+    return res.data!;
+  },
+
+  submitBuyerInquiry: async (payload: {
+    listingId: string;
+    message: string;
+    offerAmount?: number;
+    buyerPhone?: string;
+  }): Promise<{ message: string; data: any }> => {
+    const res = await fetchJson<ApiResponse<any>>("/buy/inquiries", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    return { message: res.message || "Inquiry sent", data: res.data };
+  },
+
+  getMyBuyInquiries: async (): Promise<any[]> => {
+    const res = await fetchJson<ApiResponse<any[]>>("/buy/my-inquiries");
+    return res.data || [];
+  },
+
+  // ==========================================
+  // Sell Functionality
+  // ==========================================
+  getSellListings: async (): Promise<Array<Listing & { inquiryCount: number }>> => {
+    const res = await fetchJson<ApiResponse<Array<Listing & { inquiryCount: number }>>>("/sell/listings");
+    return res.data || [];
+  },
+
+  enableSaleListing: async (payload: {
+    listingId: string;
+    askingPrice: number;
+    saleDescription?: string;
+    intent?: "sell" | "both";
+  }): Promise<{ message: string; data: any }> => {
+    const res = await fetchJson<ApiResponse<any>>("/sell/enable", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    return { message: res.message || "Sale listing enabled", data: res.data };
+  },
+
+  updateSaleListing: async (id: string, payload: {
+    askingPrice?: number;
+    saleDescription?: string;
+    intent?: "swap" | "sell" | "both";
+  }): Promise<{ message: string }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/sell/listings/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    return { message: res.message || "Sale terms updated" };
+  },
+
+  getSellInquiries: async (): Promise<any[]> => {
+    const res = await fetchJson<ApiResponse<any[]>>("/sell/inquiries");
+    return res.data || [];
+  },
+
+  updateInquiryStatus: async (id: string, status: "pending" | "contacted" | "closed"): Promise<{ message: string; data: any }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/sell/inquiries/${id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status })
+    });
+    return { message: res.message || "Status updated", data: res.data };
   }
 };

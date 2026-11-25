@@ -76,12 +76,18 @@ The platform uses genuine cryptographic authentication and server-side session m
 - **My Reviews & Professional Profile**: Complete history of all valuations assessed by the logged-in broker.
 
 ### 3. Property Owner Dashboard (`/owner/dashboard`)
-*Designed for property owners to manage assets, find exchanges, and participate in swap proposals.*
-- **My Properties Portfolio**: Comprehensive management of registered properties with status badges (`submitted`, `reviewed`, `rejected`, `locked`).
-- **Integrated Property Registration Wizard**: 4-step wizard to register new Karnataka properties with desired exchange requirements and acceptable cash boundaries.
-- **Targeted Swap Discovery**: Automatically queries the graph matching engine to find direct 2-party and 3-way circular exchanges specifically compatible with the owner's properties.
-- **Swap Proposals & Consensus Voting**: View proposals involving the owner's assets, inspect participant ledgers and cash boot adjustments, and cast binding votes (**Accept** or **Decline**).
-- **Profile & Contact Details**: View and update contact information.
+*Designed for property owners to manage assets, find exchanges, list for sale, and explore buy opportunities.*
+- **Three Prominent Action Hubs**:
+  1. **Swap Property (`/swap`)**: Discover 2-party direct and 3-party circular exchange loops with certified broker valuations and automated Cash Boot calculations.
+  2. **Buy Property (`/buy`)**: Explore verified properties listed for outright purchase, search by location/type/budget, and transmit direct purchase inquiries to verified owners.
+  3. **Sell Property (`/sell`)**: List properties for outright cash sale, manage asking prices, convert existing portfolio assets to sale mode, and track buyer inquiries received.
+- **Redesigned Property Registration Wizard (`/register`)**:
+  - **Intent Selection**: Explicitly declare intention: `Swap Only`, `Sell Only`, or `Both Swap & Sell`.
+  - **Section A (Owned Property)**: Collects title, property type, location, area/unit, conditional bedrooms/bathrooms (strictly for residential types; hidden for plots, commercial, and agricultural land), Khata type, and survey number.
+  - **Section B (Desired Property Wanted)**: Separately stores exchange preferences (desired property types, preferred localities, min area, and cash boot limits) so the matching engine compares what you own with what others want.
+  - **Section C (Sale Terms)**: Collects asking price and sale terms when intent is `sell` or `both`.
+- **My Properties Portfolio**: Comprehensive management of registered properties with intent badges (`Swap`, `Sell`, `Both`) and verification badges (`submitted`, `reviewed`, `rejected`, `locked`).
+- **Live Inquiries Management**: Real-time tracking of sent purchase inquiries and received buyer inquiries with direct response status updates (`pending`, `contacted`, `closed`).
 
 ---
 
@@ -202,8 +208,11 @@ npm run typecheck
 
 ### 3. Run Automated Tests
 ```bash
-# Run all tests across the complete test suite (89 tests across 6 suites)
+# Run all tests across the complete test suite (102 tests across 7 suites)
 npm test
+
+# Run Buy & Sell direct acquisition and intent tests
+npm run test:buysell
 
 # Run authentication and RBAC tests specifically
 npm run test:auth

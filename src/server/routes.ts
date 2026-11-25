@@ -8,6 +8,8 @@ import { authRouter } from "./authRoutes.js";
 import { adminRouter } from "./adminRoutes.js";
 import { brokerRouter } from "./brokerRoutes.js";
 import { ownerRouter } from "./ownerRoutes.js";
+import { buyRouter } from "./buyRoutes.js";
+import { sellRouter } from "./sellRoutes.js";
 import { requireAuth, requireRole } from "./auth.js";
 
 export const apiRouter = Router();
@@ -17,6 +19,8 @@ apiRouter.use("/auth", authRouter);
 apiRouter.use("/admin", adminRouter);
 apiRouter.use("/broker", brokerRouter);
 apiRouter.use("/owner", ownerRouter);
+apiRouter.use("/buy", buyRouter);
+apiRouter.use("/sell", sellRouter);
 
 // ==========================================
 // 1. User & Demo Role Management (Admin-Protected)
@@ -307,18 +311,27 @@ apiRouter.post("/listings", requireAuth, requireRole("owner", "admin"), (req: Re
 
     runInTransaction(() => {
       // Insert into listings table
+      const intent = body.intent || "swap";
+      const askingPrice = body.askingPrice ? Number(body.askingPrice) : (intent === "sell" ? Number(body.ownerDeclaredValue) : null);
+      const bedrooms = body.bedrooms ? Number(body.bedrooms) : null;
+      const bathrooms = body.bathrooms ? Number(body.bathrooms) : null;
+
       db.prepare(`
         INSERT INTO listings (
           id, ownerId, ownerName, title, category, propertyType,
           district, taluk, locality, pincode, latitude, longitude,
           area, areaUnit, ownerDeclaredValue, reviewedValue, status,
-          rejectionReason, locked, khataType, surveyNumber, conversionStatus,
+          rejectionReason, locked, intent, askingPrice, saleDescription,
+          bedrooms, bathrooms,
+          khataType, surveyNumber, conversionStatus,
           description, imageUrl, createdAt, updatedAt
         ) VALUES (
           ?, ?, ?, ?, 'real_estate', ?,
           ?, ?, ?, ?, ?, ?,
           ?, ?, ?, NULL, 'submitted',
           NULL, 0, ?, ?, ?,
+          ?, ?,
+          ?, ?, ?,
           ?, ?, ?, ?
         )
       `).run(
@@ -336,6 +349,11 @@ apiRouter.post("/listings", requireAuth, requireRole("owner", "admin"), (req: Re
         Number(body.area),
         body.areaUnit || "sq_ft",
         Number(body.ownerDeclaredValue),
+        intent,
+        askingPrice,
+        body.saleDescription || null,
+        bedrooms,
+        bathrooms,
         body.khataType || "A-Khata",
         body.surveyNumber || "Sy. No. 101/1",
         body.conversionStatus || "DC Converted",
@@ -350,8 +368,9 @@ apiRouter.post("/listings", requireAuth, requireRole("owner", "admin"), (req: Re
       db.prepare(`
         INSERT INTO exchange_requirements (
           id, listingId, desiredPropertyTypes, preferredDistricts,
-          preferredLocalities, minArea, minAreaUnit, maxCashToPay, maxCashToReceive
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          preferredLocalities, minArea, minAreaUnit, maxCashToPay, maxCashToReceive,
+          minValue, maxValue, openToCashAdjustment
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         `req-${id}`,
         id,
@@ -361,7 +380,10 @@ apiRouter.post("/listings", requireAuth, requireRole("owner", "admin"), (req: Re
         wants.minArea ? Number(wants.minArea) : null,
         wants.minAreaUnit || "sq_ft",
         wants.maxCashToPay !== undefined ? Number(wants.maxCashToPay) : null,
-        wants.maxCashToReceive !== undefined ? Number(wants.maxCashToReceive) : null
+        wants.maxCashToReceive !== undefined ? Number(wants.maxCashToReceive) : null,
+        wants.minValue ? Number(wants.minValue) : null,
+        wants.maxValue ? Number(wants.maxValue) : null,
+        wants.openToCashAdjustment === false ? 0 : 1
       );
 
       // Audit log

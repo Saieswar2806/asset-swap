@@ -130,18 +130,27 @@ ownerRouter.post("/listings", (req: Request, res: Response) => {
     };
     const coords = resolveCoordinates(tempListing);
 
+    const intent = body.intent || "swap";
+    const askingPrice = body.askingPrice ? Number(body.askingPrice) : (intent === "sell" ? Number(body.ownerDeclaredValue) : null);
+    const bedrooms = body.bedrooms ? Number(body.bedrooms) : null;
+    const bathrooms = body.bathrooms ? Number(body.bathrooms) : null;
+
     db.prepare(`
       INSERT INTO listings (
         id, ownerId, ownerName, title, category, propertyType,
         district, taluk, locality, pincode, latitude, longitude,
         area, areaUnit, ownerDeclaredValue, reviewedValue, status,
-        rejectionReason, locked, khataType, surveyNumber, conversionStatus,
+        rejectionReason, locked, intent, askingPrice, saleDescription,
+        bedrooms, bathrooms,
+        khataType, surveyNumber, conversionStatus,
         description, imageUrl, createdAt, updatedAt
       ) VALUES (
         ?, ?, ?, ?, 'real_estate', ?,
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, NULL, 'submitted',
         NULL, 0, ?, ?, ?,
+        ?, ?,
+        ?, ?, ?,
         ?, ?, ?, ?
       )
     `).run(
@@ -159,6 +168,11 @@ ownerRouter.post("/listings", (req: Request, res: Response) => {
       Number(body.area),
       body.areaUnit || "sq_ft",
       Number(body.ownerDeclaredValue),
+      intent,
+      askingPrice,
+      body.saleDescription || null,
+      bedrooms,
+      bathrooms,
       body.khataType || "A-Khata",
       body.surveyNumber || null,
       body.conversionStatus || "DC Converted",
@@ -172,8 +186,9 @@ ownerRouter.post("/listings", (req: Request, res: Response) => {
     db.prepare(`
       INSERT INTO exchange_requirements (
         id, listingId, desiredPropertyTypes, preferredDistricts,
-        preferredLocalities, minArea, minAreaUnit, maxCashToPay, maxCashToReceive
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        preferredLocalities, minArea, minAreaUnit, maxCashToPay, maxCashToReceive,
+        minValue, maxValue, openToCashAdjustment
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       `req-${id}`,
       id,
@@ -183,7 +198,10 @@ ownerRouter.post("/listings", (req: Request, res: Response) => {
       body.wants?.minArea ? Number(body.wants.minArea) : null,
       body.wants?.minAreaUnit || "sq_ft",
       body.wants?.maxCashToPay ? Number(body.wants.maxCashToPay) : 5000000,
-      body.wants?.maxCashToReceive ? Number(body.wants.maxCashToReceive) : 5000000
+      body.wants?.maxCashToReceive ? Number(body.wants.maxCashToReceive) : 5000000,
+      body.wants?.minValue ? Number(body.wants.minValue) : null,
+      body.wants?.maxValue ? Number(body.wants.maxValue) : null,
+      body.wants?.openToCashAdjustment === false ? 0 : 1
     );
 
     // Audit log

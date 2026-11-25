@@ -38,7 +38,8 @@ export function eligible(listings: Listing[]): Listing[] {
       p.wants !== null &&
       typeof p.wants === "object" &&
       Array.isArray(p.wants.propertyTypes) &&
-      p.wants.propertyTypes.length > 0
+      p.wants.propertyTypes.length > 0 &&
+      (p.intent === undefined || p.intent === "swap" || p.intent === "both")
   );
 }
 

@@ -229,6 +229,83 @@ export function initDatabase(): void {
     );
   `);
 
+  // 9. Buyer Inquiries Table (For Buy & Sell direct interest workflow)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS buyer_inquiries (
+      id TEXT PRIMARY KEY,
+      listingId TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+      sellerId TEXT NOT NULL REFERENCES users(id),
+      buyerId TEXT NOT NULL REFERENCES users(id),
+      buyerName TEXT NOT NULL,
+      buyerEmail TEXT NOT NULL,
+      buyerPhone TEXT,
+      offerAmount REAL,
+      message TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'contacted', 'closed')),
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+  `);
+
+  // Safe schema migrations for listings (intent, askingPrice, saleDescription, bedrooms, bathrooms)
+  try {
+    const listingCols = db.prepare("PRAGMA table_info(listings)").all() as Array<{ name: string }>;
+    if (!listingCols.some((c) => c.name === "intent")) {
+      db.exec("ALTER TABLE listings ADD COLUMN intent TEXT NOT NULL DEFAULT 'swap';");
+    }
+    if (!listingCols.some((c) => c.name === "askingPrice")) {
+      db.exec("ALTER TABLE listings ADD COLUMN askingPrice REAL;");
+    }
+    if (!listingCols.some((c) => c.name === "saleDescription")) {
+      db.exec("ALTER TABLE listings ADD COLUMN saleDescription TEXT;");
+    }
+    if (!listingCols.some((c) => c.name === "bedrooms")) {
+      db.exec("ALTER TABLE listings ADD COLUMN bedrooms INTEGER;");
+    }
+    if (!listingCols.some((c) => c.name === "bathrooms")) {
+      db.exec("ALTER TABLE listings ADD COLUMN bathrooms INTEGER;");
+    }
+
+    // Safe schema migrations for exchange_requirements (minValue, maxValue, openToCashAdjustment)
+    const reqCols = db.prepare("PRAGMA table_info(exchange_requirements)").all() as Array<{ name: string }>;
+    if (!reqCols.some((c) => c.name === "minValue")) {
+      db.exec("ALTER TABLE exchange_requirements ADD COLUMN minValue REAL;");
+    }
+    if (!reqCols.some((c) => c.name === "maxValue")) {
+      db.exec("ALTER TABLE exchange_requirements ADD COLUMN maxValue REAL;");
+    }
+    if (!reqCols.some((c) => c.name === "openToCashAdjustment")) {
+      db.exec("ALTER TABLE exchange_requirements ADD COLUMN openToCashAdjustment INTEGER DEFAULT 1;");
+    }
+  } catch (err) {
+    console.warn("Migration warning:", err);
+  }
+
+  // Populate askingPrice & intent on seed/existing reviewed listings if not yet configured for buy/sell
+  try {
+    const sellCountRow = db.prepare("SELECT COUNT(*) as c FROM listings WHERE intent IN ('sell', 'both')").get() as { c: number };
+    if (sellCountRow.c === 0) {
+      // Set approximately 40% of reviewed properties to 'both' (swap and sell) and populate askingPrice, bedrooms, bathrooms
+      db.exec(`
+        UPDATE listings
+        SET intent = 'both',
+            askingPrice = COALESCE(reviewedValue, ownerDeclaredValue),
+            bedrooms = CASE 
+              WHEN propertyType IN ('apartment', 'independent_house', 'farmhouse') THEN ((CAST(SUBSTR(id, -2) AS INTEGER) % 3) + 2)
+              ELSE NULL 
+            END,
+            bathrooms = CASE 
+              WHEN propertyType IN ('apartment', 'independent_house', 'farmhouse') THEN 2
+              ELSE NULL 
+            END,
+            saleDescription = 'Verified clear title property available for outright sale or mutual property swap.'
+        WHERE status = 'reviewed' AND (CAST(SUBSTR(id, -2) AS INTEGER) % 2 = 0);
+      `);
+    }
+  } catch {
+    // Non-fatal if already set
+  }
+
   // Handle environment-based initialization
   if (process.env.NODE_ENV === "production") {
     bootstrapProductionAdmin();
@@ -562,6 +639,11 @@ export interface DbListingRow {
   status: VerificationStatus;
   rejectionReason: string | null;
   locked: number;
+  intent?: "swap" | "sell" | "both" | null;
+  askingPrice?: number | null;
+  saleDescription?: string | null;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
   khataType: string | null;
   surveyNumber: string | null;
   conversionStatus: string | null;
@@ -575,6 +657,9 @@ export interface DbListingRow {
   preferredLocalities: string | null;
   minArea: number | null;
   minAreaUnit: AreaUnit | null;
+  minValue?: number | null;
+  maxValue?: number | null;
+  openToCashAdjustment?: number | null;
   maxCashToPay: number | null;
   maxCashToReceive: number | null;
 }
@@ -596,6 +681,9 @@ export function rowToListing(row: DbListingRow): Listing {
     preferredLocations = [];
   }
 
+  const effectiveIntent = (row.intent as "swap" | "sell" | "both") || "swap";
+  const askingPrice = row.askingPrice ?? (row.reviewedValue ?? row.ownerDeclaredValue);
+
   return {
     id: row.id,
     ownerId: row.ownerId,
@@ -612,11 +700,19 @@ export function rowToListing(row: DbListingRow): Listing {
     reviewedValue: row.reviewedValue ?? undefined,
     status: row.status,
     locked: row.locked === 1,
+    intent: effectiveIntent,
+    askingPrice,
+    saleDescription: row.saleDescription ?? undefined,
+    bedrooms: row.bedrooms ?? undefined,
+    bathrooms: row.bathrooms ?? undefined,
     wants: {
       propertyTypes,
       preferredLocations,
       minArea: row.minArea ?? undefined,
       minAreaUnit: row.minAreaUnit ?? undefined,
+      minValue: row.minValue ?? undefined,
+      maxValue: row.maxValue ?? undefined,
+      openToCashAdjustment: row.openToCashAdjustment !== 0,
       maxCashToPay: row.maxCashToPay ?? undefined,
       maxCashToReceive: row.maxCashToReceive ?? undefined
     },
@@ -629,7 +725,12 @@ export function rowToListing(row: DbListingRow): Listing {
       imageUrl: row.imageUrl,
       rejectionReason: row.rejectionReason,
       taluk: row.taluk,
-      pincode: row.pincode
+      pincode: row.pincode,
+      intent: effectiveIntent,
+      askingPrice,
+      saleDescription: row.saleDescription,
+      bedrooms: row.bedrooms,
+      bathrooms: row.bathrooms
     }
   };
 }
@@ -638,7 +739,8 @@ export function getAllDbListings(): Listing[] {
   const query = `
     SELECT l.*, 
            r.desiredPropertyTypes, r.preferredDistricts, r.preferredLocalities,
-           r.minArea, r.minAreaUnit, r.maxCashToPay, r.maxCashToReceive
+           r.minArea, r.minAreaUnit, r.maxCashToPay, r.maxCashToReceive,
+           r.minValue, r.maxValue, r.openToCashAdjustment
     FROM listings l
     LEFT JOIN exchange_requirements r ON l.id = r.listingId
   `;

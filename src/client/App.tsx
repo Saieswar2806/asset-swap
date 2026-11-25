@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Outlet, Navigate } from "react-router-dom
 import { UserProvider, useUser } from "./context/UserContext.js";
 import { Navbar } from "./components/Navbar.js";
 import { Footer } from "./components/Footer.js";
-import { DashboardPage } from "./pages/DashboardPage.js";
+import { ProtectedRoute } from "./components/ProtectedRoute.js";
 import { MatchesPage } from "./pages/MatchesPage.js";
 import { MatchDetailsPage } from "./pages/MatchDetailsPage.js";
 import { ProposalsPage } from "./pages/ProposalsPage.js";
@@ -17,6 +17,9 @@ import { BrokerApplyPage } from "./pages/BrokerApplyPage.js";
 import { AdminDashboardPage } from "./pages/AdminDashboardPage.js";
 import { BrokerDashboardPage } from "./pages/BrokerDashboardPage.js";
 import { OwnerDashboardPage } from "./pages/OwnerDashboardPage.js";
+import { BuyPage } from "./pages/BuyPage.js";
+import { SellPage } from "./pages/SellPage.js";
+import { SwapPage } from "./pages/SwapPage.js";
 
 const PublicLayout: React.FC = () => {
   return (
@@ -30,7 +33,12 @@ const PublicLayout: React.FC = () => {
   );
 };
 
-const DashboardRedirect: React.FC = () => {
+/**
+ * Root / redirect:
+ * - If unauthenticated: redirects to /login as required.
+ * - If authenticated: redirects to appropriate role dashboard.
+ */
+const EntryPointRedirect: React.FC = () => {
   const { currentUser, isAuthenticated, isAdmin, isBroker } = useUser();
 
   if (!isAuthenticated) {
@@ -48,30 +56,164 @@ const DashboardRedirect: React.FC = () => {
   return <Navigate to="/owner/dashboard" replace />;
 };
 
+/**
+ * AuthRedirectRoute:
+ * If an already authenticated user visits /login or /register,
+ * automatically redirect them to their role dashboard.
+ */
+const AuthRedirectRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isAdmin, isBroker } = useUser();
+
+  if (isAuthenticated) {
+    if (isAdmin) return <Navigate to="/admin/dashboard" replace />;
+    if (isBroker) return <Navigate to="/broker/dashboard" replace />;
+    return <Navigate to="/owner/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 export const App: React.FC = () => {
   return (
     <UserProvider>
       <BrowserRouter>
         <Routes>
-          {/* Dedicated full-screen Dashboards with their own sidebar + header */}
-          <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
-          <Route path="/broker/dashboard" element={<BrokerDashboardPage />} />
-          <Route path="/owner/dashboard" element={<OwnerDashboardPage />} />
-          <Route path="/dashboard" element={<DashboardRedirect />} />
+          {/* Protected dedicated full-screen Dashboards */}
+          <Route
+            path="/admin/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <AdminDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/broker/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={["broker"]}>
+                <BrokerDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/owner/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={["owner"]}>
+                <OwnerDashboardPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Standard layout with top Navbar & Footer */}
           <Route element={<PublicLayout />}>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register-owner" element={<OwnerRegisterPage />} />
-            <Route path="/broker-apply" element={<BrokerApplyPage />} />
-            <Route path="/my-properties" element={<MyPropertiesPage />} />
-            <Route path="/matches" element={<MatchesPage />} />
-            <Route path="/matches/:id" element={<MatchDetailsPage />} />
-            <Route path="/proposals" element={<ProposalsPage />} />
-            <Route path="/activity" element={<ActivityPage />} />
-            <Route path="/register" element={<RegisterPropertyPage />} />
-            <Route path="/admin" element={<AdminReviewPage />} />
+            {/* Root Entry Point: Unauthenticated -> /login; Authenticated -> Dashboard */}
+            <Route path="/" element={<EntryPointRedirect />} />
+            <Route path="/dashboard" element={<EntryPointRedirect />} />
+
+            {/* Public Authentication Pages (Redirect to dashboard if already logged in) */}
+            <Route
+              path="/login"
+              element={
+                <AuthRedirectRoute>
+                  <LoginPage />
+                </AuthRedirectRoute>
+              }
+            />
+            <Route
+              path="/register-owner"
+              element={
+                <AuthRedirectRoute>
+                  <OwnerRegisterPage />
+                </AuthRedirectRoute>
+              }
+            />
+            <Route
+              path="/broker-apply"
+              element={
+                <AuthRedirectRoute>
+                  <BrokerApplyPage />
+                </AuthRedirectRoute>
+              }
+            />
+
+            {/* Protected Core Platform Sections */}
+            <Route
+              path="/swap"
+              element={
+                <ProtectedRoute allowedRoles={["owner", "admin"]}>
+                  <SwapPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/buy"
+              element={
+                <ProtectedRoute>
+                  <BuyPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sell"
+              element={
+                <ProtectedRoute allowedRoles={["owner", "admin"]}>
+                  <SellPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/my-properties"
+              element={
+                <ProtectedRoute allowedRoles={["owner", "admin"]}>
+                  <MyPropertiesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/register"
+              element={
+                <ProtectedRoute allowedRoles={["owner", "admin"]}>
+                  <RegisterPropertyPage />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Protected Swap & Proposal Workflows */}
+            <Route path="/matches" element={<Navigate to="/swap" replace />} />
+            <Route
+              path="/matches/:id"
+              element={
+                <ProtectedRoute>
+                  <MatchDetailsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/proposals"
+              element={
+                <ProtectedRoute allowedRoles={["owner", "admin"]}>
+                  <ProposalsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/activity"
+              element={
+                <ProtectedRoute>
+                  <ActivityPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminReviewPage />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
