@@ -114,8 +114,8 @@ export const MatchDetailsPage: React.FC = () => {
         <AlertCircle className="w-10 h-10 text-red-500 mx-auto" />
         <h3 className="text-base font-bold text-red-900">Exchange Opportunity Not Found</h3>
         <p className="text-xs text-red-700">{error || "The requested match could not be retrieved."}</p>
-        <Link to="/matches" className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600">
-          <ArrowLeft className="w-4 h-4" /> Return to Matches
+        <Link to="/swap" className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600">
+          <ArrowLeft className="w-4 h-4" /> Return to Swap Hub
         </Link>
       </div>
     );

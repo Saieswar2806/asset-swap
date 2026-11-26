@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeftRight, Building, ShieldCheck, Mail, Lock, Phone, User, Award, MapPin, CheckCircle2, ShieldAlert, ArrowRight, Clock } from "lucide-react";
+import { Building, ShieldCheck, Mail, Lock, Phone, User, Award, MapPin, CheckCircle2, ShieldAlert, ArrowRight, Clock } from "lucide-react";
 import { api } from "../api.js";
+import { AssetSwapLogo } from "../components/AssetSwapLogo.js";
 
 export const BrokerApplyPage: React.FC = () => {
   const [name, setName] = useState("");
@@ -44,18 +45,8 @@ export const BrokerApplyPage: React.FC = () => {
   return (
     <div className="min-h-[85vh] flex flex-col justify-center py-10 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-xl text-center">
-        <Link to="/" className="inline-flex items-center gap-2 group mb-4">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-teal-700 via-teal-600 to-blue-600 flex items-center justify-center text-white shadow-md shadow-teal-500/20 group-hover:scale-105 transition-transform">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <div className="text-left">
-            <span className="text-2xl font-bold tracking-tight text-slate-900 block leading-tight">
-              ASSET<span className="text-teal-600">SWAP</span>
-            </span>
-            <span className="text-[10px] font-semibold text-slate-500 tracking-wider uppercase block">
-              Professional Broker Onboarding
-            </span>
-          </div>
+        <Link to="/" className="inline-flex items-center justify-center group mb-4">
+          <AssetSwapLogo size="lg" subtitle="Professional Broker Onboarding" />
         </Link>
         <h2 className="text-2xl font-bold tracking-tight text-slate-900">
           Apply for Broker Valuation Privileges

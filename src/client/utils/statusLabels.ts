@@ -82,20 +82,29 @@ export function getPurchaseInterestStatusMeta(inquiry: {
 
 export function getExchangeCoordStatusLabel(status?: string): string {
   switch (status) {
+    case "all_owners_accepted":
+      return "All Owners Accepted";
+    case "awaiting_team_contact":
     case "awaiting_coordination":
-      return "Awaiting Admin Coordination";
+      return "Awaiting Team Contact";
+    case "contact_initiated":
     case "coordination_in_progress":
-      return "Coordination in Progress";
+      return "Contact Initiated";
+    case "meeting_to_be_scheduled":
     case "site_visit_pending":
-      return "Site Visit Pending";
+      return "Meeting to Be Scheduled";
+    case "meeting_scheduled":
     case "site_visit_scheduled":
-      return "Site Visit Scheduled";
+      return "Meeting Scheduled";
+    case "legal_documentation_in_progress":
     case "legal_review_in_progress":
+      return "Legal Documentation in Progress";
+    case "awaiting_further_action":
+      return "Awaiting Further Action";
     case "completed":
-      return "Exchange Process in Progress";
     case "closed":
-      return "Closed";
+      return "Awaiting Further Action";
     default:
-      return "Awaiting Admin Coordination";
+      return "Awaiting Team Contact";
   }
 }

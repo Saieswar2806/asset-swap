@@ -6,7 +6,6 @@ import { Footer } from "./components/Footer.js";
 import { ProtectedRoute } from "./components/ProtectedRoute.js";
 import { MatchesPage } from "./pages/MatchesPage.js";
 import { MatchDetailsPage } from "./pages/MatchDetailsPage.js";
-import { ProposalsPage } from "./pages/ProposalsPage.js";
 import { RegisterPropertyPage } from "./pages/RegisterPropertyPage.js";
 import { MyPropertiesPage } from "./pages/MyPropertiesPage.js";
 import { AdminReviewPage } from "./pages/AdminReviewPage.js";
@@ -113,8 +112,8 @@ export const App: React.FC = () => {
             <Route path="/register" element={<RegisterPropertyPage />} />
             <Route path="/matches" element={<Navigate to="/swap" replace />} />
             <Route path="/matches/:id" element={<MatchDetailsPage />} />
-            <Route path="/proposals" element={<ProposalsPage />} />
-            <Route path="/exchange-progress" element={<Navigate to="/proposals" replace />} />
+            <Route path="/proposals" element={<Navigate to="/swap?tab=proposals" replace />} />
+            <Route path="/exchange-progress" element={<Navigate to="/swap?tab=accepted" replace />} />
             <Route path="/activity" element={<Navigate to="/owner/dashboard" replace />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/admin" element={<AdminReviewPage />} />

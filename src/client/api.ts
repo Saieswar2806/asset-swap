@@ -598,20 +598,54 @@ export const api = {
     return res.data || [];
   },
 
-  updateExchangeCoordinationStatus: async (id: string, status: string, notes?: string): Promise<{ message: string }> => {
+  updateExchangeCoordinationStatus: async (
+    id: string,
+    statusOrPayload:
+      | string
+      | {
+          status?: string;
+          coordinationStage?: string;
+          nextAction?: string;
+          followUpSummary?: string;
+          contactInitiated?: boolean;
+          notes?: string;
+        },
+    notes?: string
+  ): Promise<{ message: string; data?: any }> => {
+    const body =
+      typeof statusOrPayload === "string"
+        ? { status: statusOrPayload, notes }
+        : statusOrPayload;
     const res = await fetchJson<ApiResponse<any>>(`/admin/exchanges/${id}/status`, {
       method: "PATCH",
-      body: JSON.stringify({ status, notes })
+      body: JSON.stringify(body)
     });
-    return { message: res.message || "Coordination status updated" };
+    return { message: res.message || "Coordination status updated", data: res.data };
   },
 
-  scheduleSiteVisit: async (id: string, payload: { siteVisitDate: string; siteVisitLocation?: string; siteVisitNotes?: string }): Promise<{ message: string }> => {
+  logExchangeContact: async (
+    id: string,
+    payload: {
+      ownerId?: string;
+      method?: string;
+      contacted?: boolean;
+      followUpNote?: string;
+      nextAction?: string;
+    }
+  ): Promise<{ message: string; data: any }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/admin/exchanges/${id}/contact-log`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    return { message: res.message || "Contact follow-up recorded", data: res.data };
+  },
+
+  scheduleSiteVisit: async (id: string, payload: { siteVisitDate: string; siteVisitLocation?: string; siteVisitNotes?: string; nextAction?: string }): Promise<{ message: string }> => {
     const res = await fetchJson<ApiResponse<any>>(`/admin/exchanges/${id}/site-visit`, {
       method: "POST",
       body: JSON.stringify(payload)
     });
-    return { message: res.message || "Site visit scheduled successfully" };
+    return { message: res.message || "Meeting scheduled successfully" };
   },
 
   addExchangeCoordinationNote: async (id: string, note: string): Promise<{ message: string }> => {

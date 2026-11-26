@@ -1,7 +1,8 @@
 import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeftRight, Building2, UserCircle2, ShieldCheck, PlusCircle, LayoutDashboard, Sparkles, Activity, LogIn, LogOut, ChevronRight, ShoppingBag, Tag } from "lucide-react";
+import { ArrowLeftRight, Building2, UserCircle2, ShieldCheck, PlusCircle, LayoutDashboard, LogIn, LogOut, ShoppingBag, Tag } from "lucide-react";
 import { useUser } from "../context/UserContext.js";
+import { AssetSwapLogo } from "./AssetSwapLogo.js";
 
 export const Navbar: React.FC = () => {
   const location = useLocation();
@@ -24,7 +25,6 @@ export const Navbar: React.FC = () => {
         { to: "/buy", label: "Buy", icon: ShoppingBag },
         { to: "/sell", label: "Sell", icon: Tag },
         { to: "/my-properties", label: "My Properties", icon: Building2 },
-        { to: "/proposals", label: "Swap Proposals", icon: Sparkles },
         { to: "/profile", label: "Profile", icon: UserCircle2 }
       ]
     : isBroker
@@ -45,18 +45,8 @@ export const Navbar: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo & Brand (Clicks go to Dashboard if authenticated, else Login) */}
-          <Link to={isAuthenticated ? dashboardRoute : "/login"} className="flex items-center gap-3 group">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-700 via-blue-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
-              <ArrowLeftRight className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-xl font-bold tracking-tight text-slate-900 block leading-tight">
-                ASSET<span className="text-blue-600">SWAP</span>
-              </span>
-              <span className="text-[10px] font-semibold text-slate-500 tracking-wider uppercase block">
-                Direct & Multi-Party Real Estate Exchange
-              </span>
-            </div>
+          <Link to={isAuthenticated ? dashboardRoute : "/login"} className="group transition-opacity hover:opacity-90">
+            <AssetSwapLogo size="md" subtitle="Direct & Multi-Party Real Estate Exchange" />
           </Link>
 
           {/* Nav Items (Only shown for authenticated users) */}

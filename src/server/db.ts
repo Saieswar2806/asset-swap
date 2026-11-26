@@ -391,6 +391,35 @@ export function initDatabase(): void {
       db.exec("ALTER TABLE exchange_requirements ADD COLUMN openToCashAdjustment INTEGER DEFAULT 1;");
     }
 
+    // Safe schema migrations for matches & exchange_coordinations (Demo markers, readable coordination stage, outreach tracking, next action)
+    const matchCols = db.prepare("PRAGMA table_info(matches)").all() as Array<{ name: string }>;
+    if (!matchCols.some((c) => c.name === "isDemo")) {
+      db.exec("ALTER TABLE matches ADD COLUMN isDemo INTEGER NOT NULL DEFAULT 0;");
+    }
+
+    const coordCols = db.prepare("PRAGMA table_info(exchange_coordinations)").all() as Array<{ name: string }>;
+    if (!coordCols.some((c) => c.name === "coordinationStage")) {
+      db.exec("ALTER TABLE exchange_coordinations ADD COLUMN coordinationStage TEXT DEFAULT 'awaiting_team_contact';");
+    }
+    if (!coordCols.some((c) => c.name === "nextAction")) {
+      db.exec("ALTER TABLE exchange_coordinations ADD COLUMN nextAction TEXT;");
+    }
+    if (!coordCols.some((c) => c.name === "contactInitiated")) {
+      db.exec("ALTER TABLE exchange_coordinations ADD COLUMN contactInitiated INTEGER NOT NULL DEFAULT 0;");
+    }
+    if (!coordCols.some((c) => c.name === "contactedOwners")) {
+      db.exec("ALTER TABLE exchange_coordinations ADD COLUMN contactedOwners TEXT;");
+    }
+    if (!coordCols.some((c) => c.name === "lastFollowUpAt")) {
+      db.exec("ALTER TABLE exchange_coordinations ADD COLUMN lastFollowUpAt TEXT;");
+    }
+    if (!coordCols.some((c) => c.name === "followUpSummary")) {
+      db.exec("ALTER TABLE exchange_coordinations ADD COLUMN followUpSummary TEXT;");
+    }
+    if (!coordCols.some((c) => c.name === "isDemo")) {
+      db.exec("ALTER TABLE exchange_coordinations ADD COLUMN isDemo INTEGER NOT NULL DEFAULT 0;");
+    }
+
     // Backfill accepted matches into exchange_coordinations & ensure match_responses exist
     try {
       const acceptedMatches = db.prepare("SELECT id, listingIds, createdAt, updatedAt FROM matches WHERE status = 'accepted'").all() as Array<{ id: string; listingIds: string; createdAt: string; updatedAt: string }>;
@@ -540,6 +569,7 @@ export function initDatabase(): void {
     if (countRow.count === 0) {
       seedDatabase();
     }
+    ensureDemoAcceptedExchanges();
   }
 }
 
@@ -937,6 +967,455 @@ export function seedDatabase(): void {
   }
 
   console.log(`Successfully seeded ${seedListings.length} listings into database.`);
+  ensureDemoAcceptedExchanges();
+}
+
+/**
+ * Idempotently seeds 3 realistic demo accepted exchanges (residential, commercial/farmhouse, and 3-party land)
+ * using existing demo owners & listings so Admin Accepted Exchanges reflects real unanimous-acceptance coordination.
+ * Safe to call repeatedly: never overwrites existing coordination edits made by Admins or deletes existing data.
+ */
+export function ensureDemoAcceptedExchanges(): void {
+  const getListing = db.prepare("SELECT id, ownerId, ownerName, propertyType, locality, district, reviewedValue, ownerDeclaredValue FROM listings WHERE id = ?");
+  const existingMatch = db.prepare("SELECT id FROM matches WHERE id = ?");
+
+  interface DemoSpec {
+    id: string;
+    matchType: "direct_2p" | "circular_3p";
+    partyCount: number;
+    listingIds: string[];
+    totalAbsoluteBoot: number;
+    locationScoreKm: number;
+    matchScore: number;
+    explanation: string;
+    reasons: string[];
+    acceptedAt: string;
+    participants: Array<{
+      listingId: string;
+      givesValue: number;
+      receivesAssetId: string;
+      receivesPropertyType: string;
+      receivesValue: number;
+      amount: number;
+      action: "pays" | "receives" | "settled";
+      cashDifference: number;
+      explanation: string;
+      respondedAt: string;
+    }>;
+    coord: {
+      status: string;
+      coordinationStage: string;
+      nextAction: string;
+      contactInitiated: number;
+      contactedOwners: Record<string, { contacted: boolean; method?: string; contactedAt?: string; notes?: string }>;
+      lastFollowUpAt: string | null;
+      followUpSummary: string;
+      siteVisitDate?: string | null;
+      siteVisitLocation?: string | null;
+      siteVisitNotes?: string | null;
+      coordinationNotes?: string | null;
+    };
+    timeline: Array<{ idSuffix: string; action: string; notes: string; performedBy: string; performedById: string; createdAt: string }>;
+  }
+
+  const demoExchanges: DemoSpec[] = [
+    {
+      id: "match-demo-accepted-residential-01",
+      matchType: "direct_2p",
+      partyCount: 2,
+      listingIds: ["ASSET-003", "ASSET-004"],
+      totalAbsoluteBoot: 0,
+      locationScoreKm: 3.4,
+      matchScore: 95,
+      explanation: "Demo Sample — Direct 2-party residential exchange in Mysuru (Jayalakshmipuram Apartment <-> Gokulam Prime Residential Site) with ₹0 net cash difference.",
+      reasons: [
+        "Both broker-reviewed properties valued cleanly at ₹1,50,00,000",
+        "Within 4 km across prime Mysuru residential zones",
+        "Both owners independently reviewed and accepted direct exchange"
+      ],
+      acceptedAt: "2026-11-22T10:30:00.000Z",
+      participants: [
+        {
+          listingId: "ASSET-003",
+          givesValue: 15000000,
+          receivesAssetId: "ASSET-004",
+          receivesPropertyType: "plot_site",
+          receivesValue: 15000000,
+          amount: 0,
+          action: "settled",
+          cashDifference: 0,
+          explanation: "Exchanges Jayalakshmipuram Apartment for Gokulam Prime Residential Site (Equal Value).",
+          respondedAt: "2026-11-21T16:15:00.000Z"
+        },
+        {
+          listingId: "ASSET-004",
+          givesValue: 15000000,
+          receivesAssetId: "ASSET-003",
+          receivesPropertyType: "apartment",
+          receivesValue: 15000000,
+          amount: 0,
+          action: "settled",
+          cashDifference: 0,
+          explanation: "Exchanges Gokulam Prime Residential Site for Jayalakshmipuram Apartment (Equal Value).",
+          respondedAt: "2026-11-22T10:30:00.000Z"
+        }
+      ],
+      coord: {
+        status: "awaiting_coordination",
+        coordinationStage: "awaiting_team_contact",
+        nextAction: "Initiate introductory phone outreach with Deepa Narayan and Raghavendra Rao to confirm original document readiness.",
+        contactInitiated: 0,
+        contactedOwners: {
+          "OWNER-003": { contacted: false },
+          "OWNER-004": { contacted: false }
+        },
+        lastFollowUpAt: null,
+        followUpSummary: "Unanimous acceptance recorded from both Mysuru residential owners. Queued for initial Asset Swap coordinator contact.",
+        coordinationNotes: "Demo residential exchange awaiting initial Admin outreach."
+      },
+      timeline: [
+        {
+          idSuffix: "consensus",
+          action: "consensus_achieved",
+          notes: "All owners independently reviewed and accepted exchange terms. Entered Admin coordination queue.",
+          performedBy: "Raghavendra Rao",
+          performedById: "OWNER-004",
+          createdAt: "2026-11-22T10:30:00.000Z"
+        }
+      ]
+    },
+    {
+      id: "match-demo-accepted-commercial-02",
+      matchType: "direct_2p",
+      partyCount: 2,
+      listingIds: ["ASSET-005", "ASSET-034"],
+      totalAbsoluteBoot: 2000000,
+      locationScoreKm: 48.0,
+      matchScore: 91,
+      explanation: "Demo Sample — Commercial & Farmhouse 2-party exchange (Indiranagar Commercial Building, Bengaluru <-> Kunigal Country Farmhouse, Tumakuru) with ₹20,00,000 cash boot.",
+      reasons: [
+        "Commercial property valued at ₹3,20,00,000 balanced equitably against ₹3,00,00,000 farmhouse estate",
+        "Mutually approved ₹20,00,000 cash boot settlement",
+        "Both owners independently accepted and cleared preliminary admin outreach"
+      ],
+      acceptedAt: "2026-11-20T14:20:00.000Z",
+      participants: [
+        {
+          listingId: "ASSET-005",
+          givesValue: 32000000,
+          receivesAssetId: "ASSET-034",
+          receivesPropertyType: "farmhouse",
+          receivesValue: 30000000,
+          amount: 2000000,
+          action: "receives",
+          cashDifference: 2000000,
+          explanation: "Exchanges Indiranagar Commercial Building for Kunigal Farmhouse + receives ₹20,00,000 cash boot.",
+          respondedAt: "2026-11-19T11:45:00.000Z"
+        },
+        {
+          listingId: "ASSET-034",
+          givesValue: 30000000,
+          receivesAssetId: "ASSET-005",
+          receivesPropertyType: "commercial",
+          receivesValue: 32000000,
+          amount: 2000000,
+          action: "pays",
+          cashDifference: -2000000,
+          explanation: "Exchanges Kunigal Farmhouse for Indiranagar Commercial Building + pays ₹20,00,000 cash boot.",
+          respondedAt: "2026-11-20T14:20:00.000Z"
+        }
+      ],
+      coord: {
+        status: "site_visit_scheduled",
+        coordinationStage: "meeting_scheduled",
+        nextAction: "Conduct joint site walkthrough on 08 Dec and collect certified Khata & commercial tax receipts from both parties.",
+        contactInitiated: 1,
+        contactedOwners: {
+          "OWNER-005": {
+            contacted: true,
+            method: "Phone Call",
+            contactedAt: "2026-11-23T10:15:00.000Z",
+            notes: "Confirmed commercial tenancy schedule and availability for Indiranagar walkthrough."
+          },
+          "OWNER-034": {
+            contacted: true,
+            method: "Phone Call",
+            contactedAt: "2026-11-23T15:40:00.000Z",
+            notes: "Confirmed willingness to attend joint inspection and bring original sale deed copies."
+          }
+        },
+        lastFollowUpAt: "2026-11-24T09:30:00.000Z",
+        followUpSummary: "Team contacted Manjunath Prasad & Ajay Vaidya; joint property verification meeting scheduled.",
+        siteVisitDate: "2026-12-08T11:00",
+        siteVisitLocation: "100 Ft Road, Indiranagar Commercial Site & Kunigal Walkthrough",
+        siteVisitNotes: "Senior coordinator & empanelled advocate attending for commercial A-Khata and EC verification.",
+        coordinationNotes: "Contact initiated with both commercial & farmhouse owners; joint site meeting confirmed for 8 Dec 2026."
+      },
+      timeline: [
+        {
+          idSuffix: "consensus",
+          action: "consensus_achieved",
+          notes: "All owners independently accepted commercial/farmhouse swap terms.",
+          performedBy: "Ajay Vaidya",
+          performedById: "OWNER-034",
+          createdAt: "2026-11-20T14:20:00.000Z"
+        },
+        {
+          idSuffix: "outreach",
+          action: "team_follow_up",
+          notes: "Admin completed initial calls with both Manjunath Prasad and Ajay Vaidya to align verification checklists.",
+          performedBy: "Kavitha Murthy (Administrator)",
+          performedById: "admin-001",
+          createdAt: "2026-11-23T15:40:00.000Z"
+        },
+        {
+          idSuffix: "visit",
+          action: "site_visit_scheduled",
+          notes: "Joint inspection & document verification meeting scheduled for 8 Dec 2026 at Indiranagar Commercial Site.",
+          performedBy: "Kavitha Murthy (Administrator)",
+          performedById: "admin-001",
+          createdAt: "2026-11-24T09:30:00.000Z"
+        }
+      ]
+    },
+    {
+      id: "match-demo-accepted-land-03",
+      matchType: "circular_3p",
+      partyCount: 3,
+      listingIds: ["ASSET-016", "ASSET-031", "ASSET-012"],
+      totalAbsoluteBoot: 5000000,
+      locationScoreKm: 54.0,
+      matchScore: 89,
+      explanation: "Demo Sample — 3-Party circular land & urban exchange connecting Srirangapatna Land (Mandya), Harohalli Site (Ramanagara), and Kuvempunagar Apartment (Mysuru) with zero net imbalance.",
+      reasons: [
+        "3-way circular preference match across Mandya, Ramanagara, and Mysuru",
+        "Zero-sum cash boot equilibrium: +₹25L, -₹15L, -₹10L",
+        "All three participating property owners independently accepted exchange terms"
+      ],
+      acceptedAt: "2026-11-18T17:05:00.000Z",
+      participants: [
+        {
+          listingId: "ASSET-016",
+          givesValue: 18000000,
+          receivesAssetId: "ASSET-031",
+          receivesPropertyType: "plot_site",
+          receivesValue: 15500000,
+          amount: 2500000,
+          action: "receives",
+          cashDifference: 2500000,
+          explanation: "Exchanges Srirangapatna Agricultural Land (₹1.80 Cr) for Harohalli Plot (₹1.55 Cr) + receives ₹25,00,000 boot.",
+          respondedAt: "2026-11-17T12:10:00.000Z"
+        },
+        {
+          listingId: "ASSET-031",
+          givesValue: 15500000,
+          receivesAssetId: "ASSET-012",
+          receivesPropertyType: "apartment",
+          receivesValue: 17000000,
+          amount: 1500000,
+          action: "pays",
+          cashDifference: -1500000,
+          explanation: "Exchanges Harohalli Plot (₹1.55 Cr) for Mysuru Apartment (₹1.70 Cr) + pays ₹15,00,000 boot.",
+          respondedAt: "2026-11-18T09:40:00.000Z"
+        },
+        {
+          listingId: "ASSET-012",
+          givesValue: 17000000,
+          receivesAssetId: "ASSET-016",
+          receivesPropertyType: "agricultural_land",
+          receivesValue: 18000000,
+          amount: 1000000,
+          action: "pays",
+          cashDifference: -1000000,
+          explanation: "Exchanges Mysuru Apartment (₹1.70 Cr) for Srirangapatna Agricultural Land (₹1.80 Cr) + pays ₹10,00,000 boot.",
+          respondedAt: "2026-11-18T17:05:00.000Z"
+        }
+      ],
+      coord: {
+        status: "legal_review_in_progress",
+        coordinationStage: "legal_documentation_in_progress",
+        nextAction: "Follow up with Meenakshi Sundaram on updated Encumbrance Certificate before scheduling tripartite advocate signing.",
+        contactInitiated: 1,
+        contactedOwners: {
+          "OWNER-016": {
+            contacted: true,
+            method: "Phone Call",
+            contactedAt: "2026-11-21T11:00:00.000Z",
+            notes: "RTC/Pahani and mutation extract shared for advocate legal verification."
+          },
+          "OWNER-031": {
+            contacted: true,
+            method: "Phone Call",
+            contactedAt: "2026-11-22T14:30:00.000Z",
+            notes: "DC conversion certificate and BBMP/BMRDA layout approval verified."
+          },
+          "OWNER-012": {
+            contacted: false,
+            notes: "Callback scheduled for Form 15 Encumbrance Certificate confirmation."
+          }
+        },
+        lastFollowUpAt: "2026-11-25T16:10:00.000Z",
+        followUpSummary: "Advocate legal documentation review active; 2 of 3 owners contacted and land/layout records verified.",
+        coordinationNotes: "Tripartite legal documentation review underway across Mandya agricultural RTC, Ramanagara plot conversion, and Mysuru apartment EC."
+      },
+      timeline: [
+        {
+          idSuffix: "consensus",
+          action: "consensus_achieved",
+          notes: "All 3 property owners independently accepted circular exchange loop.",
+          performedBy: "Meenakshi Sundaram",
+          performedById: "OWNER-012",
+          createdAt: "2026-11-18T17:05:00.000Z"
+        },
+        {
+          idSuffix: "outreach",
+          action: "team_follow_up",
+          notes: "Contacted Girish Nayak and Sachin Shukla; land Pahani & DC conversion records collected.",
+          performedBy: "Kavitha Murthy (Administrator)",
+          performedById: "admin-001",
+          createdAt: "2026-11-22T14:30:00.000Z"
+        },
+        {
+          idSuffix: "legal",
+          action: "status_update",
+          notes: "Advanced stage to Legal Documentation in Progress with empanelled property advocates.",
+          performedBy: "Kavitha Murthy (Administrator)",
+          performedById: "admin-001",
+          createdAt: "2026-11-25T16:10:00.000Z"
+        }
+      ]
+    }
+  ];
+
+  const insertMatch = db.prepare(`
+    INSERT OR IGNORE INTO matches (
+      id, matchType, partyCount, cycle, listingIds, totalAbsoluteBoot,
+      locationScoreKm, matchScore, verificationStatus, status,
+      explanation, reasons, exchangeLegs, isDemo, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reviewed', 'accepted', ?, ?, ?, 1, ?, ?)
+  `);
+
+  const insertParticipant = db.prepare(`
+    INSERT OR IGNORE INTO match_participants (
+      id, matchId, listingId, ownerId, ownerName, givesAssetId, givesPropertyType,
+      givesValue, receivesAssetId, receivesPropertyType, receivesValue, amount,
+      action, cashDifference, explanation
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const insertResponse = db.prepare(`
+    INSERT OR IGNORE INTO match_responses (id, matchId, listingId, ownerId, decision, respondedAt)
+    VALUES (?, ?, ?, ?, 'accepted', ?)
+  `);
+
+  const insertCoord = db.prepare(`
+    INSERT OR IGNORE INTO exchange_coordinations (
+      id, matchId, status, coordinationStage, nextAction, contactInitiated, contactedOwners,
+      lastFollowUpAt, followUpSummary, siteVisitDate, siteVisitLocation, siteVisitNotes,
+      coordinationNotes, assignedAdminId, assignedAdminName, isDemo, updatedAt, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'admin-001', 'Kavitha Murthy (Administrator)', 1, ?, ?)
+  `);
+
+  const insertTimeline = db.prepare(`
+    INSERT OR IGNORE INTO coordination_timeline (id, matchId, action, notes, performedBy, performedById, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const lockListing = db.prepare("UPDATE listings SET locked = 1 WHERE id = ?");
+
+  runInTransaction(() => {
+    for (const demo of demoExchanges) {
+      if (existingMatch.get(demo.id)) {
+        // Already exists: preserve Admin coordination state completely (idempotent!)
+        continue;
+      }
+
+      const loadedListings = demo.listingIds.map((lid) => getListing.get(lid) as any);
+      if (loadedListings.some((l) => !l)) {
+        continue;
+      }
+
+      insertMatch.run(
+        demo.id,
+        demo.matchType,
+        demo.partyCount,
+        JSON.stringify(demo.listingIds),
+        JSON.stringify(demo.listingIds),
+        demo.totalAbsoluteBoot,
+        demo.locationScoreKm,
+        demo.matchScore,
+        demo.explanation,
+        JSON.stringify(demo.reasons),
+        JSON.stringify(demo.participants.map((p) => ({
+          fromListingId: p.listingId,
+          toListingId: p.receivesAssetId,
+          fromOwnerId: loadedListings.find((l) => l.id === p.listingId)?.ownerId
+        }))),
+        demo.acceptedAt,
+        demo.acceptedAt
+      );
+
+      for (const p of demo.participants) {
+        const lRow = loadedListings.find((l) => l.id === p.listingId);
+        if (!lRow) continue;
+        insertParticipant.run(
+          `${demo.id}-${p.listingId}`,
+          demo.id,
+          p.listingId,
+          lRow.ownerId,
+          lRow.ownerName,
+          p.listingId,
+          lRow.propertyType,
+          p.givesValue,
+          p.receivesAssetId,
+          p.receivesPropertyType,
+          p.receivesValue,
+          p.amount,
+          p.action,
+          p.cashDifference,
+          p.explanation
+        );
+        insertResponse.run(
+          `${demo.id}-${p.listingId}`,
+          demo.id,
+          p.listingId,
+          lRow.ownerId,
+          p.respondedAt
+        );
+        lockListing.run(p.listingId);
+      }
+
+      insertCoord.run(
+        `coord-${demo.id}`,
+        demo.id,
+        demo.coord.status,
+        demo.coord.coordinationStage,
+        demo.coord.nextAction,
+        demo.coord.contactInitiated,
+        JSON.stringify(demo.coord.contactedOwners),
+        demo.coord.lastFollowUpAt,
+        demo.coord.followUpSummary,
+        demo.coord.siteVisitDate || null,
+        demo.coord.siteVisitLocation || null,
+        demo.coord.siteVisitNotes || null,
+        demo.coord.coordinationNotes || null,
+        demo.acceptedAt,
+        demo.acceptedAt
+      );
+
+      for (const ev of demo.timeline) {
+        insertTimeline.run(
+          `time-${demo.id}-${ev.idSuffix}`,
+          demo.id,
+          ev.action,
+          ev.notes,
+          ev.performedBy,
+          ev.performedById,
+          ev.createdAt
+        );
+      }
+    }
+  });
 }
 
 export interface DbListingRow {

@@ -1,25 +1,44 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   ArrowLeftRight,
   Sparkles,
   CheckCircle2,
   Clock,
   XCircle,
-  Filter,
   AlertCircle,
-  Building2,
   RefreshCw,
-  PlusCircle
+  PlusCircle,
+  Calendar,
+  ShieldCheck
 } from "lucide-react";
 import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import { MatchCard } from "../components/MatchCard.js";
+import { formatCurrency } from "../components/PropertyCard.js";
+import { getExchangeCoordStatusLabel } from "../utils/statusLabels.js";
 import type { Match, Listing } from "../types.js";
 
 export const SwapPage: React.FC = () => {
   const { currentUser } = useUser();
-  const [activeTab, setActiveTab] = useState<"matches" | "proposals" | "accepted" | "declined">("matches");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const initialTab =
+    tabParam === "proposals" || tabParam === "accepted" || tabParam === "declined"
+      ? tabParam
+      : "matches";
+  const [activeTab, setActiveTabState] = useState<"matches" | "proposals" | "accepted" | "declined">(initialTab);
+
+  const setActiveTab = (tab: "matches" | "proposals" | "accepted" | "declined") => {
+    setActiveTabState(tab);
+    setSearchParams(tab === "matches" ? {} : { tab }, { replace: true });
+  };
+
+  useEffect(() => {
+    if (tabParam === "matches" || tabParam === "proposals" || tabParam === "accepted" || tabParam === "declined") {
+      setActiveTabState(tabParam);
+    }
+  }, [tabParam]);
 
   const [matches, setMatches] = useState<Match[]>([]);
   const [twoPartyCount, setTwoPartyCount] = useState<number>(0);
@@ -246,81 +265,92 @@ export const SwapPage: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {activeProposals.map((prop) => (
+              {activeProposals.map((prop) => {
+                const myParticipant = prop.participants?.find((p: any) => p.isCurrentUser || p.ownerId === currentUser?.id);
+                const myResponse = myParticipant ? (myParticipant.response || prop.myDecision || "pending") : null;
+                return (
                 <div key={prop.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-                  <div className="flex items-start justify-between">
+                  <div className="flex items-start justify-between gap-2">
                     <div>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 text-amber-800">
-                        Pending Consensus Voting
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                        {prop.formalStatus || "Awaiting Responses"}
                       </span>
                       <h3 className="text-sm font-bold text-slate-900 mt-1.5">
-                        {prop.partyCount === 2 ? "Direct 2-Party Asset Exchange" : "3-Party Circular Exchange"}
+                        {prop.partyCount === 2 ? "Direct 2-Party Asset Exchange" : `${prop.partyCount}-Party Circular Exchange`}
                       </h3>
                       <span className="text-[11px] text-slate-400 font-mono">Ref: {prop.ref || prop.id.replace("match-", "EXP-")}</span>
                     </div>
 
-                    {(() => {
-                      const myParticipant = prop.participants?.find((p: any) => p.ownerId === currentUser?.id);
-                      const myResponse = myParticipant ? prop.responses?.[myParticipant.listingId] : null;
-
-                      if (myParticipant && myResponse === "pending") {
-                        return (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleVoteSubmit(prop.id, myParticipant.listingId, "accepted")}
-                              className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs flex items-center gap-1"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Accept</span>
-                            </button>
-                            <button
-                              onClick={() => handleVoteSubmit(prop.id, myParticipant.listingId, "declined")}
-                              className="px-3 py-1.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-colors shadow-xs flex items-center gap-1"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              <span>Decline</span>
-                            </button>
-                          </div>
-                        );
-                      }
-                      return (
-                        <Link
-                          to={`/matches/${prop.id}`}
-                          className="px-3 py-1.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+                    {myParticipant && myResponse === "pending" ? (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleVoteSubmit(prop.id, myParticipant.listingId, "accepted")}
+                          className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shadow-xs flex items-center gap-1"
                         >
-                          View Details
-                        </Link>
-                      );
-                    })()}
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Accept</span>
+                        </button>
+                        <button
+                          onClick={() => handleVoteSubmit(prop.id, myParticipant.listingId, "declined")}
+                          className="px-3 py-1.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-colors shadow-xs flex items-center gap-1"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>Decline</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <Link
+                        to={`/matches/${prop.id}`}
+                        className="px-3 py-1.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shrink-0"
+                      >
+                        View Details
+                      </Link>
+                    )}
                   </div>
+
+                  {prop.nextStep && (
+                    <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-xl text-[11px] text-blue-900 font-medium">
+                      {prop.nextStep}
+                    </div>
+                  )}
 
                   {/* Summary of participants */}
                   <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-2 text-xs">
-                    <span className="font-bold text-slate-700 block text-[11px]">Participating Property Owners:</span>
-                    {prop.participants?.map((p: any) => (
-                      <div key={p.ownerId + p.givesAssetId} className="flex items-center justify-between py-1 border-b border-slate-200/60 last:border-0">
-                        <span className="font-semibold text-slate-900">{p.ownerName}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-500">{p.givesPropertyType?.replace("_", " ")}</span>
+                    <span className="font-bold text-slate-700 block text-[11px]">Participating Owners & Properties:</span>
+                    {prop.participants?.map((p: any) => {
+                      const decision = p.response || "pending";
+                      return (
+                      <div key={p.listingId || p.givesAssetId} className="flex items-center justify-between py-1.5 border-b border-slate-200/60 last:border-0 gap-2">
+                        <div className="min-w-0">
+                          <span className="font-semibold text-slate-900 block truncate">
+                            {p.isCurrentUser ? `${p.ownerName} (You)` : (p.ownerName || "Verified Participant")}
+                          </span>
+                          <span className="text-[11px] text-slate-500 block truncate">
+                            {p.ownedProperty?.title || p.givesPropertyType?.replace(/_/g, " ")} {p.ownedProperty ? `• ${p.ownedProperty.locality}` : ""} ({formatCurrency(p.givesValue)})
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            (p.response || prop.responses?.[p.listingId]) === "accepted"
+                            decision === "accepted"
                               ? "bg-emerald-100 text-emerald-800"
-                              : (p.response || prop.responses?.[p.listingId]) === "declined"
+                              : decision === "declined"
                               ? "bg-red-100 text-red-800"
                               : "bg-amber-100 text-amber-800"
                           }`}>
-                            {(p.response || prop.responses?.[p.listingId]) === "accepted"
+                            {decision === "accepted"
                               ? "Accepted"
-                              : (p.response || prop.responses?.[p.listingId]) === "declined"
+                              : decision === "declined"
                               ? "Declined"
                               : "Awaiting Response"}
                           </span>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -330,26 +360,63 @@ export const SwapPage: React.FC = () => {
           {acceptedProposals.length === 0 ? (
             <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-xs">
               <CheckCircle2 className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <h3 className="text-base font-bold text-slate-900">No completed swaps yet</h3>
+              <h3 className="text-base font-bold text-slate-900">No accepted swaps yet</h3>
               <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                Swaps that achieve 100% unanimous owner consensus transition to accepted state.
+                Swaps that achieve 100% unanimous owner consensus transition to accepted state for Asset Swap team coordination.
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               {acceptedProposals.map((prop) => (
                 <div key={prop.id} className="bg-white border border-emerald-200 rounded-2xl p-5 shadow-xs space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                      {prop.formalStatus || "Awaiting Admin Coordination"}
-                    </span>
-                    <span className="text-xs text-slate-400 font-mono">Ref: {prop.ref || prop.id.replace("match-", "EXP-")}</span>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          All Owners Accepted
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                          {getExchangeCoordStatusLabel(prop.coordination?.coordinationStage || prop.coordination?.status)}
+                        </span>
+                      </div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        {prop.partyCount === 2 ? "Direct 2-Party Asset Exchange" : `${prop.partyCount}-Way Circular Exchange`}
+                      </h4>
+                      <span className="text-[11px] text-slate-400 font-mono">Ref: {prop.ref || prop.id.replace("match-", "EXP-")}</span>
+                    </div>
+                    <Link
+                      to={`/matches/${prop.id}`}
+                      className="px-3 py-1.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 shrink-0"
+                    >
+                      View Details
+                    </Link>
                   </div>
-                  <h4 className="text-sm font-bold text-slate-900">
-                    {prop.partyCount === 2 ? "Direct 2-Party Asset Exchange" : "3-Way Circular Exchange"}
-                  </h4>
-                  <p className="text-xs text-slate-600">
-                    Accepted by all participants. The Asset Swap team is coordinating site visits and next steps directly with participating owners.
+
+                  {prop.coordination?.siteVisitDate && (
+                    <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-purple-600 shrink-0" />
+                      <span>
+                        <strong>Meeting Scheduled:</strong>{" "}
+                        {new Date(prop.coordination.siteVisitDate).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                        {prop.coordination.siteVisitLocation ? ` • ${prop.coordination.siteVisitLocation}` : ""}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-1.5 text-xs">
+                    {prop.participants?.map((p: any) => (
+                      <div key={p.listingId} className="flex items-center justify-between text-[11px]">
+                        <span className="font-semibold text-slate-800">
+                          {p.isCurrentUser ? `${p.ownerName} (You)` : p.ownerName} • {p.ownedProperty?.title || p.givesPropertyType?.replace(/_/g, " ")}
+                        </span>
+                        <span className="text-emerald-700 font-bold">Accepted</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-[11px] text-slate-600 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>Participant contact details remain private. The Asset Swap team coordinates verification meetings and legal documentation directly.</span>
                   </p>
                 </div>
               ))}

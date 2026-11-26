@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeftRight, Eye, EyeOff, Lock, Mail, ShieldAlert, CheckCircle2, UserCircle2, ArrowRight } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, ShieldAlert, CheckCircle2, UserCircle2, ArrowRight } from "lucide-react";
 import { useUser } from "../context/UserContext.js";
+import { AssetSwapLogo } from "../components/AssetSwapLogo.js";
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -54,18 +55,8 @@ export const LoginPage: React.FC = () => {
   return (
     <div className="min-h-[80vh] flex flex-col justify-center py-10 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <Link to="/" className="inline-flex items-center gap-2 group mb-4">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-blue-700 via-blue-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
-            <ArrowLeftRight className="w-6 h-6" />
-          </div>
-          <div className="text-left">
-            <span className="text-2xl font-bold tracking-tight text-slate-900 block leading-tight">
-              ASSET<span className="text-blue-600">SWAP</span>
-            </span>
-            <span className="text-[10px] font-semibold text-slate-500 tracking-wider uppercase block">
-              Direct & Multi-Party Asset Exchange
-            </span>
-          </div>
+        <Link to="/" className="inline-flex items-center justify-center group mb-4">
+          <AssetSwapLogo size="lg" subtitle="Direct & Multi-Party Asset Exchange" />
         </Link>
         <h2 className="text-2xl font-bold tracking-tight text-slate-900">
           Sign in to your account

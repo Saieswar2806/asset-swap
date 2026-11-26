@@ -213,10 +213,10 @@ export const ProfilePage: React.FC = () => {
             </Link>
             <span className="text-slate-300">•</span>
             <Link
-              to="/proposals"
+              to="/swap"
               className="text-xs font-bold text-slate-600 hover:text-slate-900"
             >
-              Swap Proposals
+              Property Swap Hub
             </Link>
           </div>
         </div>

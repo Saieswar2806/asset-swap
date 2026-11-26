@@ -154,7 +154,7 @@ export const MyPropertiesPage: React.FC = () => {
                   </button>
                 ) : listing.locked ? (
                   <Link
-                    to="/proposals"
+                    to="/swap?tab=proposals"
                     className="flex-1 text-center py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center justify-center gap-1 transition-colors"
                   >
                     <Clock className="w-3.5 h-3.5 text-blue-600" />

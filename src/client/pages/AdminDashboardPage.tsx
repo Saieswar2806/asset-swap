@@ -99,9 +99,14 @@ export const AdminDashboardPage: React.FC = () => {
   const [exchangeSearch, setExchangeSearch] = useState<string>("");
   const [selectedExchange, setSelectedExchange] = useState<any | null>(null);
   const [coordinationModalOpen, setCoordinationModalOpen] = useState(false);
-  const [coordTab, setCoordTab] = useState<"status" | "site_visit" | "notes" | "timeline">("status");
-  const [newStatus, setNewStatus] = useState<string>("awaiting_coordination");
+  const [coordTab, setCoordTab] = useState<"overview" | "status" | "outreach" | "site_visit" | "timeline">("overview");
+  const [newStatus, setNewStatus] = useState<string>("awaiting_team_contact");
+  const [nextActionInput, setNextActionInput] = useState<string>("");
+  const [contactInitiatedInput, setContactInitiatedInput] = useState<boolean>(false);
   const [statusNotes, setStatusNotes] = useState<string>("");
+  const [outreachOwnerId, setOutreachOwnerId] = useState<string>("all");
+  const [outreachMethod, setOutreachMethod] = useState<string>("Phone Call");
+  const [outreachNote, setOutreachNote] = useState<string>("");
   const [siteVisitDate, setSiteVisitDate] = useState<string>("");
   const [siteVisitLocation, setSiteVisitLocation] = useState<string>("");
   const [siteVisitNotes, setSiteVisitNotes] = useState<string>("");
@@ -199,14 +204,32 @@ export const AdminDashboardPage: React.FC = () => {
   const awaitingCoordCount = metrics?.exchanges?.awaitingCoordination ?? acceptedExchanges.filter((e) => e.coordinationStatus === "awaiting_coordination").length;
   const pendingPurchaseReviewCount = metrics?.purchaseInterests?.awaitingAdminReview ?? purchaseInterests.filter((p) => p.sellerResponse === "accepted" && p.adminStatus === "pending").length;
 
-  const handleQuickExchangeStatus = async (exchangeId: string, status: string) => {
+  const handleQuickExchangeStatus = async (exchangeId: string, coordinationStage: string) => {
     setSubmittingCoord(true);
     try {
-      const res = await api.updateExchangeCoordinationStatus(exchangeId, status);
+      const res = await api.updateExchangeCoordinationStatus(exchangeId, { coordinationStage });
       setFeedback({ message: res.message, type: "success" });
       await loadData();
     } catch (err: any) {
       setFeedback({ message: err.message || "Failed to update exchange status", type: "error" });
+    } finally {
+      setSubmittingCoord(false);
+    }
+  };
+
+  const handleQuickMarkOwnerContacted = async (exchangeId: string, ownerId: string, ownerName: string) => {
+    setSubmittingCoord(true);
+    try {
+      const res = await api.logExchangeContact(exchangeId, {
+        ownerId,
+        method: "Phone Call",
+        contacted: true,
+        followUpNote: `Initial outreach completed with ${ownerName}.`
+      });
+      setFeedback({ message: res.message, type: "success" });
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "Failed to log owner outreach", type: "error" });
     } finally {
       setSubmittingCoord(false);
     }
@@ -299,15 +322,20 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  const handleOpenCoordination = (exchange: any) => {
+  const handleOpenCoordination = (exchange: any, initialTab: "overview" | "status" | "outreach" | "site_visit" | "timeline" = "overview") => {
     setSelectedExchange(exchange);
-    setNewStatus(exchange.coordinationStatus || "awaiting_coordination");
+    setNewStatus(exchange.coordinationStage || "awaiting_team_contact");
+    setNextActionInput(exchange.nextAction || "");
+    setContactInitiatedInput(Boolean(exchange.contactInitiated));
     setStatusNotes("");
+    setOutreachOwnerId("all");
+    setOutreachMethod("Phone Call");
+    setOutreachNote("");
     setSiteVisitDate(exchange.siteVisitDate ? exchange.siteVisitDate.slice(0, 16) : "");
     setSiteVisitLocation(exchange.siteVisitLocation || "");
     setSiteVisitNotes(exchange.siteVisitNotes || "");
     setCoordNote("");
-    setCoordTab("status");
+    setCoordTab(initialTab);
     setCoordinationModalOpen(true);
   };
 
@@ -315,7 +343,12 @@ export const AdminDashboardPage: React.FC = () => {
     if (!selectedExchange) return;
     setSubmittingCoord(true);
     try {
-      const res = await api.updateExchangeCoordinationStatus(selectedExchange.id, newStatus, statusNotes);
+      const res = await api.updateExchangeCoordinationStatus(selectedExchange.id, {
+        coordinationStage: newStatus,
+        nextAction: nextActionInput,
+        contactInitiated: contactInitiatedInput,
+        notes: statusNotes || undefined
+      });
       setFeedback({ message: res.message, type: "success" });
       setCoordinationModalOpen(false);
       await loadData();
@@ -326,9 +359,38 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
+  const handleLogOutreach = async () => {
+    if (!selectedExchange) return;
+    setSubmittingCoord(true);
+    try {
+      const res = await api.logExchangeContact(selectedExchange.id, {
+        ownerId: outreachOwnerId === "all" ? undefined : outreachOwnerId,
+        method: outreachMethod,
+        contacted: true,
+        followUpNote: outreachNote || undefined,
+        nextAction: nextActionInput || undefined
+      });
+      setFeedback({ message: res.message, type: "success" });
+      setOutreachNote("");
+      const updatedList = await api.getAdminAcceptedExchanges();
+      setAcceptedExchanges(updatedList);
+      const updatedItem = updatedList.find((e: any) => e.id === selectedExchange.id);
+      if (updatedItem) {
+        setSelectedExchange(updatedItem);
+        setNewStatus(updatedItem.coordinationStage || newStatus);
+        setContactInitiatedInput(Boolean(updatedItem.contactInitiated));
+      }
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "Failed to log outreach follow-up", type: "error" });
+    } finally {
+      setSubmittingCoord(false);
+    }
+  };
+
   const handleScheduleSiteVisit = async () => {
     if (!selectedExchange || !siteVisitDate) {
-      setFeedback({ message: "Please specify a site visit date and time.", type: "error" });
+      setFeedback({ message: "Please specify a meeting date and time.", type: "error" });
       return;
     }
     setSubmittingCoord(true);
@@ -336,13 +398,14 @@ export const AdminDashboardPage: React.FC = () => {
       const res = await api.scheduleSiteVisit(selectedExchange.id, {
         siteVisitDate,
         siteVisitLocation,
-        siteVisitNotes
+        siteVisitNotes,
+        nextAction: nextActionInput || undefined
       });
       setFeedback({ message: res.message, type: "success" });
       setCoordinationModalOpen(false);
       await loadData();
     } catch (err: any) {
-      setFeedback({ message: err.message || "Failed to schedule site visit", type: "error" });
+      setFeedback({ message: err.message || "Failed to schedule meeting", type: "error" });
     } finally {
       setSubmittingCoord(false);
     }
@@ -469,11 +532,10 @@ export const AdminDashboardPage: React.FC = () => {
         {/* Feedback Alert */}
         {feedback && (
           <div
-            className={`p-3.5 rounded-xl border flex items-center justify-between text-xs font-semibold ${
-              feedback.type === "success"
+            className={`p-3.5 rounded-xl border flex items-center justify-between text-xs font-semibold ${feedback.type === "success"
                 ? "bg-emerald-50 text-emerald-800 border-emerald-200"
                 : "bg-red-50 text-red-800 border-red-200"
-            }`}
+              }`}
           >
             <span>{feedback.message}</span>
             <button onClick={() => setFeedback(null)} className="text-slate-400 hover:text-slate-600">
@@ -708,26 +770,24 @@ export const AdminDashboardPage: React.FC = () => {
                         </td>
                         <td className="px-4 py-3">
                           <span
-                            className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase border ${
-                              u.role === "admin"
+                            className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase border ${u.role === "admin"
                                 ? "bg-purple-100 text-purple-800 border-purple-200"
                                 : u.role === "broker"
-                                ? "bg-teal-100 text-teal-800 border-teal-200"
-                                : "bg-blue-100 text-blue-800 border-blue-200"
-                            }`}
+                                  ? "bg-teal-100 text-teal-800 border-teal-200"
+                                  : "bg-blue-100 text-blue-800 border-blue-200"
+                              }`}
                           >
                             {u.role}
                           </span>
                         </td>
                         <td className="px-4 py-3">
                           <span
-                            className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${
-                              u.status === "active"
+                            className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${u.status === "active"
                                 ? "bg-emerald-100 text-emerald-800"
                                 : u.status === "pending"
-                                ? "bg-amber-100 text-amber-800"
-                                : "bg-red-100 text-red-800"
-                            }`}
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-red-100 text-red-800"
+                              }`}
                           >
                             {u.status}
                           </span>
@@ -751,11 +811,10 @@ export const AdminDashboardPage: React.FC = () => {
                             {!isSelf && (
                               <button
                                 onClick={() => handleToggleUserStatus(u)}
-                                className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-colors ${
-                                  u.status === "active"
+                                className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-colors ${u.status === "active"
                                     ? "bg-slate-100 text-slate-700 hover:bg-red-50 hover:text-red-700 border border-slate-200"
                                     : "bg-emerald-600 text-white hover:bg-emerald-700"
-                                }`}
+                                  }`}
                               >
                                 {u.status === "active" ? "Suspend" : "Activate"}
                               </button>
@@ -832,13 +891,12 @@ export const AdminDashboardPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <span
-                          className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] uppercase ${
-                            b.status === "active"
+                          className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] uppercase ${b.status === "active"
                               ? "bg-emerald-100 text-emerald-800"
                               : b.status === "pending"
-                              ? "bg-amber-100 text-amber-800 animate-pulse"
-                              : "bg-red-100 text-red-800"
-                          }`}
+                                ? "bg-amber-100 text-amber-800 animate-pulse"
+                                : "bg-red-100 text-red-800"
+                            }`}
                         >
                           {b.status}
                         </span>
@@ -956,39 +1014,38 @@ export const AdminDashboardPage: React.FC = () => {
               <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
                 {[
                   { id: "all", label: "All Accepted", count: acceptedExchanges.length },
-                  { id: "awaiting_coordination", label: "Awaiting Admin Action", count: acceptedExchanges.filter((e) => e.coordinationStatus === "awaiting_coordination").length },
-                  { id: "coordination_in_progress", label: "Coordination in Progress", count: acceptedExchanges.filter((e) => e.coordinationStatus === "coordination_in_progress").length },
-                  { id: "site_visit_pending", label: "Site Visit Pending", count: acceptedExchanges.filter((e) => e.coordinationStatus === "site_visit_pending").length },
-                  { id: "site_visit_scheduled", label: "Site Visit Scheduled", count: acceptedExchanges.filter((e) => e.coordinationStatus === "site_visit_scheduled").length },
-                  { id: "legal_review_in_progress", label: "Exchange Process in Progress", count: acceptedExchanges.filter((e) => e.coordinationStatus === "legal_review_in_progress").length },
-                  { id: "closed", label: "Closed", count: acceptedExchanges.filter((e) => e.coordinationStatus === "closed" || e.coordinationStatus === "completed").length }
+                  { id: "awaiting_team_contact", label: "Awaiting Team Contact", count: acceptedExchanges.filter((e) => (e.coordinationStage || "awaiting_team_contact") === "awaiting_team_contact" || e.coordinationStage === "all_owners_accepted").length },
+                  { id: "contact_initiated", label: "Contact Initiated", count: acceptedExchanges.filter((e) => e.coordinationStage === "contact_initiated").length },
+                  { id: "meeting_to_be_scheduled", label: "Meeting to Be Scheduled", count: acceptedExchanges.filter((e) => e.coordinationStage === "meeting_to_be_scheduled").length },
+                  { id: "meeting_scheduled", label: "Meeting Scheduled", count: acceptedExchanges.filter((e) => e.coordinationStage === "meeting_scheduled").length },
+                  { id: "legal_documentation_in_progress", label: "Legal Documentation in Progress", count: acceptedExchanges.filter((e) => e.coordinationStage === "legal_documentation_in_progress").length },
+                  { id: "awaiting_further_action", label: "Awaiting Further Action", count: acceptedExchanges.filter((e) => e.coordinationStage === "awaiting_further_action" || e.coordinationStage === "closed").length }
                 ].map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setExchangeStatusFilter(tab.id)}
-                    className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                      exchangeStatusFilter === tab.id
+                    className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${exchangeStatusFilter === tab.id
                         ? "bg-slate-900 text-white shadow-xs"
                         : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
+                      }`}
                   >
                     <span>{tab.label}</span>
-                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                      exchangeStatusFilter === tab.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
-                    }`}>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${exchangeStatusFilter === tab.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
+                      }`}>
                       {tab.count}
                     </span>
                   </button>
                 ))}
               </div>
 
-              <div className="relative min-w-[200px]">
+              <div className="relative min-w-[220px]">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
                 <input
                   type="text"
-                  placeholder="Filter by ref, owner or asset..."
+                  placeholder="Search ref, owner, property, or city..."
                   value={exchangeSearch}
                   onChange={(e) => setExchangeSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && loadData()}
                   className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
@@ -1005,22 +1062,31 @@ export const AdminDashboardPage: React.FC = () => {
                 <ArrowLeftRight className="w-10 h-10 text-slate-300 mx-auto" />
                 <h3 className="text-base font-bold text-slate-900">No Accepted Exchanges in this Queue</h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  When all participating property owners unanimously accept an exchange proposal, it automatically transitions here for administrative facilitation.
+                  When all participating property owners unanimously accept an exchange proposal, it automatically transitions here for administrative coordination.
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
                 {acceptedExchanges.map((item) => {
-                  const statusColors: Record<string, string> = {
+                  const stageKey = item.coordinationStage || item.coordinationStatus;
+                  const stageColors: Record<string, string> = {
+                    all_owners_accepted: "bg-emerald-50 text-emerald-800 border-emerald-200",
+                    awaiting_team_contact: "bg-blue-50 text-blue-800 border-blue-200",
                     awaiting_coordination: "bg-blue-50 text-blue-800 border-blue-200",
-                    coordination_in_progress: "bg-amber-50 text-amber-800 border-amber-200",
+                    contact_initiated: "bg-teal-50 text-teal-800 border-teal-200",
+                    coordination_in_progress: "bg-teal-50 text-teal-800 border-teal-200",
+                    meeting_to_be_scheduled: "bg-amber-50 text-amber-800 border-amber-200",
+                    site_visit_pending: "bg-amber-50 text-amber-800 border-amber-200",
+                    meeting_scheduled: "bg-purple-50 text-purple-800 border-purple-300 font-bold",
                     site_visit_scheduled: "bg-purple-50 text-purple-800 border-purple-300 font-bold",
-                    site_visit_pending: "bg-purple-50 text-purple-700 border-purple-200",
-                    legal_review_in_progress: "bg-indigo-50 text-indigo-700 border-indigo-200",
-                    completed: "bg-emerald-50 text-emerald-800 border-emerald-300",
+                    legal_documentation_in_progress: "bg-indigo-50 text-indigo-800 border-indigo-200",
+                    legal_review_in_progress: "bg-indigo-50 text-indigo-800 border-indigo-200",
+                    awaiting_further_action: "bg-slate-100 text-slate-800 border-slate-300",
                     closed: "bg-slate-100 text-slate-600 border-slate-300"
                   };
-                  const badgeClass = statusColors[item.coordinationStatus] || "bg-slate-100 text-slate-700 border-slate-200";
+                  const badgeClass = stageColors[stageKey] || "bg-slate-100 text-slate-700 border-slate-200";
+                  const contactedCount = item.participants?.filter((p: any) => p.contacted).length || 0;
+                  const totalOwnersCount = item.participants?.length || item.partyCount;
 
                   return (
                     <div
@@ -1028,109 +1094,180 @@ export const AdminDashboardPage: React.FC = () => {
                       className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:border-slate-300 transition-all"
                     >
                       {/* Card Header */}
-                      <div className="bg-slate-50 border-b border-slate-200 p-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="space-y-1">
+                      <div className="bg-slate-50 border-b border-slate-200 p-4 sm:px-6 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                        <div className="space-y-1.5">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-mono text-xs font-bold text-blue-700 bg-white border border-slate-200 px-2 py-0.5 rounded">
                               Ref: {item.ref}
                             </span>
                             <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-200/80 text-slate-700">
-                              {item.partyCount === 2 ? "2-Party Direct Exchange" : "3-Party Circular Exchange"}
+                              {item.partyCount === 2 ? "Direct 2-Party Exchange" : `${item.partyCount}-Party Circular Exchange`}
+                            </span>
+                            {item.isDemo && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                                Demo Sample Data
+                              </span>
+                            )}
+                            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>All Owners Accepted ({totalOwnersCount}/{totalOwnersCount})</span>
                             </span>
                             <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${badgeClass}`}>
-                              {getExchangeCoordStatusLabel(item.coordinationStatus)}
+                              {getExchangeCoordStatusLabel(stageKey)}
                             </span>
                           </div>
                           <h3 className="text-sm font-bold text-slate-900">{item.explanation}</h3>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
                           <span className="text-xs text-slate-500 mr-1">
-                            Unanimously Accepted: {new Date(item.enteredQueueAt || item.acceptedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                            Mutually Accepted: {new Date(item.enteredQueueAt || item.acceptedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                           </span>
-                          {item.coordinationStatus === "awaiting_coordination" && (
+                          {!item.contactInitiated && (
                             <button
                               disabled={submittingCoord}
-                              onClick={() => handleQuickExchangeStatus(item.id, "coordination_in_progress")}
+                              onClick={() => handleQuickExchangeStatus(item.id, "contact_initiated")}
                               className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
                             >
-                              Start Coordination
+                              Mark Contact Initiated
                             </button>
                           )}
                           <button
-                            onClick={() => handleOpenCoordination(item)}
+                            onClick={() => handleOpenCoordination(item, "outreach")}
+                            className="px-3 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
+                          >
+                            <Phone className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Log Outreach</span>
+                          </button>
+                          <button
+                            onClick={() => handleOpenCoordination(item, "overview")}
                             className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                           >
-                            <Calendar className="w-3.5 h-3.5" />
-                            <span>Manage Coordination</span>
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Coordinate & Details</span>
                           </button>
-                          {item.coordinationStatus !== "closed" && (
-                            <button
-                              disabled={submittingCoord}
-                              onClick={() => handleQuickExchangeStatus(item.id, "closed")}
-                              className="px-3 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold transition-colors"
-                            >
-                              Close Exchange
-                            </button>
-                          )}
                         </div>
                       </div>
 
                       {/* Card Body */}
                       <div className="p-4 sm:p-6 space-y-4">
-                        {/* Site Visit Banner if scheduled */}
+                        {/* Follow-up & Next Action Bar */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                Team Follow-up Status
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${item.contactInitiated
+                                  ? "bg-teal-100 text-teal-800"
+                                  : "bg-amber-100 text-amber-800"
+                                }`}>
+                                {item.contactInitiated ? `Contacted (${contactedCount}/${totalOwnersCount} Owners)` : "No Contact Logged Yet"}
+                              </span>
+                            </div>
+                            <p className="text-slate-700 leading-relaxed">
+                              {item.followUpSummary || item.coordinationNotes || "Awaiting first coordinator outreach call with participating owners."}
+                            </p>
+                            {item.lastFollowUpAt && (
+                              <span className="text-[10px] text-slate-400 block">
+                                Last follow-up: {new Date(item.lastFollowUpAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">
+                              Next Action Required
+                            </span>
+                            <p className="font-semibold text-blue-950 leading-relaxed">
+                              {item.nextAction}
+                            </p>
+                            {item.assignedAdminName && (
+                              <span className="text-[10px] text-blue-700 block">
+                                Assigned Coordinator: {item.assignedAdminName}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Meeting / Site Visit Banner if scheduled */}
                         {item.siteVisitDate && (
-                          <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-xl flex items-center justify-between text-xs text-purple-900">
+                          <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs text-purple-900">
                             <div className="flex items-center gap-2">
                               <Calendar className="w-4 h-4 text-purple-600 shrink-0" />
                               <span>
-                                <strong>Site Visit Inspection:</strong>{" "}
+                                <strong>Scheduled Verification Meeting:</strong>{" "}
                                 {new Date(item.siteVisitDate).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                                 {item.siteVisitLocation && ` • ${item.siteVisitLocation}`}
                               </span>
                             </div>
                             <span className="font-bold text-purple-700 uppercase text-[10px] bg-purple-100 px-2 py-0.5 rounded">
-                              Scheduled
+                              Meeting Scheduled
                             </span>
                           </div>
                         )}
 
-                        {/* Participants & Properties Breakdown */}
+                        {/* Participating Owners & Properties Breakdown */}
                         <div className="border border-slate-200 rounded-xl overflow-hidden">
                           <div className="bg-slate-100/70 px-4 py-2 text-[11px] font-bold text-slate-600 uppercase tracking-wider grid grid-cols-12 gap-2">
-                            <div className="col-span-4">Owner & Property</div>
-                            <div className="col-span-3">Contact (Staff Only)</div>
-                            <div className="col-span-3">Asset Valuation</div>
+                            <div className="col-span-4">Owner & Property Details</div>
+                            <div className="col-span-3">Contact & Team Outreach (Staff Only)</div>
+                            <div className="col-span-3">Acceptance & Valuation</div>
                             <div className="col-span-2 text-right">Cash Boot</div>
                           </div>
 
                           <div className="divide-y divide-slate-100 text-xs">
                             {item.participants.map((p: any) => (
                               <div key={p.listingId} className="px-4 py-3 grid grid-cols-12 gap-2 items-center">
-                                <div className="col-span-4">
+                                <div className="col-span-4 space-y-0.5">
                                   <div className="font-bold text-slate-900">{p.ownerName}</div>
-                                  <div className="text-[11px] text-slate-500 font-mono">
-                                    Asset #{p.listingId} ({p.givesPropertyType.replace(/_/g, " ")})
+                                  <div className="text-[11px] font-semibold text-slate-800 truncate" title={p.property?.title || p.listingId}>
+                                    {p.property?.title || `Asset #${p.listingId}`}
                                   </div>
-                                  {p.respondedAt && (
-                                    <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">
-                                      Accepted {new Date(p.respondedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-                                    </div>
-                                  )}
+                                  <div className="text-[11px] text-slate-500 flex items-center gap-1 flex-wrap">
+                                    <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.2 rounded">#{p.listingId}</span>
+                                    <span className="capitalize">{p.givesPropertyType.replace(/_/g, " ")}</span>
+                                    {p.property && (
+                                      <span>• {p.property.locality}, {p.property.district}</span>
+                                    )}
+                                  </div>
                                 </div>
 
-                                <div className="col-span-3 text-slate-600 space-y-0.5">
+                                <div className="col-span-3 text-slate-600 space-y-1">
                                   <div className="flex items-center gap-1 font-mono text-[11px]">
                                     <Phone className="w-3 h-3 text-slate-400" />
-                                    <span>{p.ownerPhone || "No phone"}</span>
+                                    <span>{p.ownerPhone || "Not provided"}</span>
                                   </div>
                                   <div className="flex items-center gap-1 text-[11px] truncate">
                                     <Mail className="w-3 h-3 text-slate-400 shrink-0" />
-                                    <span className="truncate">{p.ownerEmail || "No email"}</span>
+                                    <span className="truncate">{p.ownerEmail || "Not provided"}</span>
+                                  </div>
+                                  <div>
+                                    {p.contacted ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded">
+                                        <Check className="w-3 h-3" />
+                                        <span>Contacted{p.contactMethod ? ` (${p.contactMethod})` : ""}</span>
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled={submittingCoord}
+                                        onClick={() => handleQuickMarkOwnerContacted(item.id, p.ownerId, p.ownerName)}
+                                        className="text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded transition-colors"
+                                      >
+                                        + Mark Contacted
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
 
                                 <div className="col-span-3 space-y-0.5">
+                                  <div className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded mb-0.5">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span>
+                                      Accepted {p.respondedAt ? new Date(p.respondedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : ""}
+                                    </span>
+                                  </div>
                                   <div>Gives: <strong className="text-slate-800">{formatCurrency(p.givesValue)}</strong></div>
                                   <div>Receives: <strong className="text-slate-800">{formatCurrency(p.receivesValue)}</strong></div>
                                 </div>
@@ -1193,23 +1330,23 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
 
               {/* Modal Subtabs */}
-              <div className="flex border-b border-slate-200 bg-slate-50 px-5 pt-3 gap-2 text-xs font-bold">
+              <div className="flex overflow-x-auto border-b border-slate-200 bg-slate-50 px-5 pt-3 gap-2 text-xs font-bold">
                 {[
-                  { id: "status", label: "Coordination Status", icon: CheckCircle2 },
-                  { id: "site_visit", label: "Schedule Site Visit", icon: Calendar },
-                  { id: "notes", label: "Staff Notes", icon: MessageSquare },
-                  { id: "timeline", label: "Timeline & Audit", icon: Activity }
+                  { id: "overview", label: "Exchange Details", icon: Info },
+                  { id: "status", label: "Status & Next Action", icon: CheckCircle2 },
+                  { id: "outreach", label: "Team Outreach", icon: Phone },
+                  { id: "site_visit", label: "Schedule Meeting", icon: Calendar },
+                  { id: "timeline", label: "History & Notes", icon: FileText }
                 ].map((t) => {
                   const Icon = t.icon;
                   return (
                     <button
                       key={t.id}
                       onClick={() => setCoordTab(t.id as any)}
-                      className={`flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-all ${
-                        coordTab === t.id
+                      className={`flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-all whitespace-nowrap ${coordTab === t.id
                           ? "border-blue-600 text-blue-600"
                           : "border-transparent text-slate-500 hover:text-slate-800"
-                      }`}
+                        }`}
                     >
                       <Icon className="w-3.5 h-3.5" />
                       <span>{t.label}</span>
@@ -1218,38 +1355,106 @@ export const AdminDashboardPage: React.FC = () => {
                 })}
               </div>
 
-              <div className="p-6 space-y-4">
-                {/* TAB A: Status Update */}
+              <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+                {/* TAB 0: Overview & Details */}
+                {coordTab === "overview" && (
+                  <div className="space-y-4 text-xs">
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 flex items-center justify-between gap-2">
+                      <span className="font-semibold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>All owners have independently reviewed and accepted this exchange.</span>
+                      </span>
+                      <span className="text-[10px] font-bold uppercase text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                        Immutable Consent
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                      <div className="text-[10px] font-bold uppercase text-slate-500">Current Stage & Next Action</div>
+                      <div className="font-bold text-slate-900">{getExchangeCoordStatusLabel(selectedExchange.coordinationStage || selectedExchange.coordinationStatus)}</div>
+                      <div className="text-slate-600">Next Action: <strong className="text-slate-900">{selectedExchange.nextAction || "Pending coordinator update"}</strong></div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-[11px] font-bold uppercase text-slate-600">Participating Owners & Properties</div>
+                      {selectedExchange.participants?.map((p: any) => (
+                        <div key={p.listingId} className="p-3 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-slate-900">{p.ownerName} ({p.ownerPhone || "No phone"} • {p.ownerEmail || "No email"})</div>
+                            <div className="text-slate-600">
+                              Gives: <strong>{p.property?.title || p.listingId}</strong> ({p.givesPropertyType.replace(/_/g, " ")}, {p.property?.locality}, {p.property?.district})
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              Accepted on {p.respondedAt ? new Date(p.respondedAt).toLocaleString("en-IN") : "Recorded"}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0 space-y-1">
+                            <span className="block font-bold text-slate-900">{formatCurrency(p.givesValue)}</span>
+                            <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded ${p.contacted ? "bg-teal-100 text-teal-800" : "bg-amber-100 text-amber-800"
+                              }`}>
+                              {p.contacted ? "Team Contacted" : "Awaiting Outreach"}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB A: Status & Next Action Update */}
                 {coordTab === "status" && (
                   <div className="space-y-4">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Operational Facilitation Status
+                        Coordination Status Stage
                       </label>
                       <select
                         value={newStatus}
                         onChange={(e) => setNewStatus(e.target.value)}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600"
                       >
-                        <option value="awaiting_coordination">Awaiting Administrative Coordination</option>
-                        <option value="coordination_in_progress">Coordination in Progress</option>
-                        <option value="site_visit_pending">Site Visit Pending</option>
-                        <option value="site_visit_scheduled">Site Visit Scheduled</option>
-                        <option value="legal_review_in_progress">Title & Document Review in Progress</option>
-                        <option value="completed">Coordination Facilitation Completed</option>
-                        <option value="closed">Concluded / Archived</option>
+                        <option value="all_owners_accepted">All Owners Accepted</option>
+                        <option value="awaiting_team_contact">Awaiting Team Contact</option>
+                        <option value="contact_initiated">Contact Initiated</option>
+                        <option value="meeting_to_be_scheduled">Meeting to Be Scheduled</option>
+                        <option value="meeting_scheduled">Meeting Scheduled</option>
+                        <option value="legal_documentation_in_progress">Legal Documentation in Progress</option>
+                        <option value="awaiting_further_action">Awaiting Further Action</option>
                       </select>
                     </div>
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Status Update Remarks (Optional)
+                        Next Action Required
+                      </label>
+                      <input
+                        type="text"
+                        value={nextActionInput}
+                        onChange={(e) => setNextActionInput(e.target.value)}
+                        placeholder="e.g. Confirm joint inspection slot and collect Form 15 EC from both owners."
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      />
+                    </div>
+
+                    <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={contactInitiatedInput}
+                        onChange={(e) => setContactInitiatedInput(e.target.checked)}
+                        className="rounded border-slate-300 text-blue-600"
+                      />
+                      <span>Asset Swap team has initiated contact with participating owners</span>
+                    </label>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Coordination Remarks (Optional)
                       </label>
                       <textarea
                         rows={3}
                         value={statusNotes}
                         onChange={(e) => setStatusNotes(e.target.value)}
-                        placeholder="e.g. Spoke with both owners; preliminary survey records verified with tahsildar office."
+                        placeholder="e.g. Spoke with both owners; preliminary survey records verified."
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
                       />
                     </div>
@@ -1266,22 +1471,98 @@ export const AdminDashboardPage: React.FC = () => {
                         disabled={submittingCoord}
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
                       >
-                        {submittingCoord ? "Updating..." : "Save Status Update"}
+                        {submittingCoord ? "Saving..." : "Save Coordination Update"}
                       </button>
                     </div>
                   </div>
                 )}
 
-                {/* TAB B: Site Visit Scheduling */}
-                {coordTab === "site_visit" && (
+                {/* TAB OUTREACH: Contact Attempts & Follow-up Tracking */}
+                {coordTab === "outreach" && (
                   <div className="space-y-4">
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed">
-                      Scheduling a site inspection records the appointment on the exchange file and automatically dispatches alerts to all participating property owners.
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                          Participant Contacted
+                        </label>
+                        <select
+                          value={outreachOwnerId}
+                          onChange={(e) => setOutreachOwnerId(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold"
+                        >
+                          <option value="all">All Participating Owners</option>
+                          {selectedExchange.participants?.map((p: any) => (
+                            <option key={p.ownerId} value={p.ownerId}>
+                              {p.ownerName} ({p.ownerPhone || p.ownerEmail})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                          Contact Channel
+                        </label>
+                        <select
+                          value={outreachMethod}
+                          onChange={(e) => setOutreachMethod(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold"
+                        >
+                          <option value="Phone Call">Phone Call</option>
+                          <option value="Email">Email</option>
+                          <option value="WhatsApp / Call">WhatsApp / Call</option>
+                          <option value="In-Person Meeting">In-Person Meeting</option>
+                        </select>
+                      </div>
                     </div>
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Site Visit Date & Time *
+                        Follow-up Summary & Outcome
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={outreachNote}
+                        onChange={(e) => setOutreachNote(e.target.value)}
+                        placeholder="Record owner response, document readiness, or availability for verification meeting..."
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Next Action Required (Optional Update)
+                      </label>
+                      <input
+                        type="text"
+                        value={nextActionInput}
+                        onChange={(e) => setNextActionInput(e.target.value)}
+                        placeholder="Next coordinator step following this call..."
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={handleLogOutreach}
+                        disabled={submittingCoord}
+                        className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-bold shadow-xs"
+                      >
+                        {submittingCoord ? "Saving..." : "Record Contact & Follow-up"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB B: Meeting / Site Visit Scheduling */}
+                {coordTab === "site_visit" && (
+                  <div className="space-y-4">
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed">
+                      Scheduling a verification meeting or site visit updates the stage to <strong>Meeting Scheduled</strong> and notifies participating owners inside their Swap Hub.
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Meeting / Site Visit Date & Time *
                       </label>
                       <input
                         type="datetime-local"
@@ -1293,26 +1574,26 @@ export const AdminDashboardPage: React.FC = () => {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Inspection Meeting Location / Property Address
+                        Meeting Location / Property Address
                       </label>
                       <input
                         type="text"
                         value={siteVisitLocation}
                         onChange={(e) => setSiteVisitLocation(e.target.value)}
-                        placeholder="e.g. Asset ASSET-001 Site, Koramangala 4th Block"
+                        placeholder="e.g. Property Site Office or Asset Swap Conference Room"
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
                       />
                     </div>
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Inspection Notes & Instructions for Owners
+                        Inspection Agenda & Document Checklist
                       </label>
                       <textarea
                         rows={3}
                         value={siteVisitNotes}
                         onChange={(e) => setSiteVisitNotes(e.target.value)}
-                        placeholder="e.g. Please bring original RTC/Pahani extract and certified encumbrance certificate."
+                        placeholder="e.g. Bring original sale deed, EC, and latest property tax receipt."
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
                       />
                     </div>
@@ -1329,58 +1610,43 @@ export const AdminDashboardPage: React.FC = () => {
                         disabled={submittingCoord || !siteVisitDate}
                         className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
                       >
-                        {submittingCoord ? "Scheduling..." : "Schedule & Notify Owners"}
+                        {submittingCoord ? "Scheduling..." : "Schedule Meeting & Notify"}
                       </button>
                     </div>
                   </div>
                 )}
 
-                {/* TAB C: Staff Notes */}
-                {coordTab === "notes" && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Add Administrative Coordination Note
-                      </label>
-                      <textarea
-                        rows={4}
-                        value={coordNote}
-                        onChange={(e) => setCoordNote(e.target.value)}
-                        placeholder="Record staff phone conversations, lawyer notes, document status, or owner requests..."
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      />
-                    </div>
-
-                    <div className="flex justify-end">
-                      <button
-                        onClick={handleAddCoordNote}
-                        disabled={submittingCoord || !coordNote.trim()}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs"
-                      >
-                        {submittingCoord ? "Saving..." : "Save Note"}
-                      </button>
-                    </div>
-
-                    {selectedExchange.coordinationNotes && (
-                      <div className="pt-3 border-t border-slate-100">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Latest Logged Notes</span>
-                        <div className="p-3 bg-slate-50 rounded-lg text-xs text-slate-700 whitespace-pre-wrap">
-                          {selectedExchange.coordinationNotes}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* TAB D: Timeline & Audit */}
+                {/* TAB D: History & Staff Notes */}
                 {coordTab === "timeline" && (
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Coordination Audit Log
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-slate-700 uppercase">
+                        Add Internal Coordination Note
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={coordNote}
+                          onChange={(e) => setCoordNote(e.target.value)}
+                          placeholder="Record lawyer notes, verification update, or participant request..."
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        />
+                        <button
+                          onClick={handleAddCoordNote}
+                          disabled={submittingCoord || !coordNote.trim()}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs disabled:opacity-50"
+                        >
+                          Add Note
+                        </button>
+                      </div>
+                    </div>
+
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider pt-2 border-t border-slate-100">
+                      Persisted Coordination History
                     </h4>
 
                     {selectedExchange.timeline?.length === 0 ? (
-                      <p className="text-xs text-slate-400 py-6 text-center">No coordination timeline events recorded yet.</p>
+                      <p className="text-xs text-slate-400 py-6 text-center">No coordination history recorded yet.</p>
                     ) : (
                       <div className="divide-y divide-slate-100 text-xs max-h-64 overflow-y-auto">
                         {selectedExchange.timeline?.map((event: any) => (
@@ -1455,16 +1721,14 @@ export const AdminDashboardPage: React.FC = () => {
                   <button
                     key={tab.id}
                     onClick={() => setPurchaseStatusFilter(tab.id)}
-                    className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                      purchaseStatusFilter === tab.id
+                    className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${purchaseStatusFilter === tab.id
                         ? "bg-slate-900 text-white shadow-xs"
                         : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
+                      }`}
                   >
                     <span>{tab.label}</span>
-                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                      purchaseStatusFilter === tab.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
-                    }`}>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${purchaseStatusFilter === tab.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
+                      }`}>
                       {tab.count}
                     </span>
                   </button>
@@ -1628,11 +1892,10 @@ export const AdminDashboardPage: React.FC = () => {
                     <button
                       key={t.id}
                       onClick={() => setPurchaseCoordTab(t.id as any)}
-                      className={`flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-all ${
-                        purchaseCoordTab === t.id
+                      className={`flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-all ${purchaseCoordTab === t.id
                           ? "border-blue-600 text-blue-600"
                           : "border-transparent text-slate-500 hover:text-slate-800"
-                      }`}
+                        }`}
                     >
                       <Icon className="w-3.5 h-3.5" />
                       <span>{t.label}</span>

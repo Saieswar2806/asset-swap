@@ -490,6 +490,48 @@ adminRouter.patch("/listings/:id/consent", (req: Request, res: Response) => {
 // 5. Accepted Exchanges Coordination Management
 // ==========================================
 
+// Map readable coordination stages <-> SQLite CHECK status column cleanly
+function stageToDbStatus(stage?: string): string {
+  switch (stage) {
+    case "all_owners_accepted":
+    case "awaiting_team_contact":
+      return "awaiting_coordination";
+    case "contact_initiated":
+    case "awaiting_further_action":
+      return "coordination_in_progress";
+    case "meeting_to_be_scheduled":
+      return "site_visit_pending";
+    case "meeting_scheduled":
+      return "site_visit_scheduled";
+    case "legal_documentation_in_progress":
+      return "legal_review_in_progress";
+    case "closed":
+      return "closed";
+    default:
+      return "coordination_in_progress";
+  }
+}
+
+function dbStatusToDefaultStage(status?: string | null): string {
+  switch (status) {
+    case "awaiting_coordination":
+      return "awaiting_team_contact";
+    case "coordination_in_progress":
+      return "contact_initiated";
+    case "site_visit_pending":
+      return "meeting_to_be_scheduled";
+    case "site_visit_scheduled":
+      return "meeting_scheduled";
+    case "legal_review_in_progress":
+    case "completed":
+      return "legal_documentation_in_progress";
+    case "closed":
+      return "closed";
+    default:
+      return "awaiting_team_contact";
+  }
+}
+
 // Get all accepted exchanges with coordination details and owner contact info (for staff coordination)
 adminRouter.get("/exchanges", (req: Request, res: Response) => {
   try {
@@ -497,9 +539,12 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
 
     let query = `
       SELECT m.*, 
-             c.id as coordId, c.status as coordinationStatus, 
+             c.id as coordId, c.status as coordinationStatus,
+             c.coordinationStage, c.nextAction, c.contactInitiated,
+             c.contactedOwners, c.lastFollowUpAt, c.followUpSummary,
              c.siteVisitDate, c.siteVisitLocation, c.siteVisitNotes, 
              c.coordinationNotes, c.assignedAdminId, c.assignedAdminName,
+             c.isDemo as coordIsDemo,
              c.createdAt as coordCreatedAt,
              c.updatedAt as coordUpdatedAt
       FROM matches m
@@ -509,10 +554,18 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
     const params: unknown[] = [];
 
     if (status && typeof status === "string" && status !== "all") {
-      if (status === "legal_review_in_progress") {
-        query += " AND c.status IN ('legal_review_in_progress', 'completed')";
+      if (status === "legal_review_in_progress" || status === "legal_documentation_in_progress") {
+        query += " AND (c.status = 'legal_review_in_progress' OR c.coordinationStage = 'legal_documentation_in_progress')";
+      } else if (status === "awaiting_team_contact" || status === "awaiting_coordination") {
+        query += " AND (c.coordinationStage IN ('awaiting_team_contact', 'all_owners_accepted') OR c.status = 'awaiting_coordination' OR c.status IS NULL)";
+      } else if (status === "contact_initiated" || status === "coordination_in_progress") {
+        query += " AND (c.coordinationStage = 'contact_initiated' OR c.status = 'coordination_in_progress')";
+      } else if (status === "meeting_to_be_scheduled" || status === "site_visit_pending") {
+        query += " AND (c.coordinationStage = 'meeting_to_be_scheduled' OR c.status = 'site_visit_pending')";
+      } else if (status === "meeting_scheduled" || status === "site_visit_scheduled") {
+        query += " AND (c.coordinationStage = 'meeting_scheduled' OR c.status = 'site_visit_scheduled')";
       } else {
-        query += " AND (c.status = ? OR (c.status IS NULL AND ? = 'awaiting_coordination'))";
+        query += " AND (c.coordinationStage = ? OR c.status = ?)";
         params.push(status, status);
       }
     }
@@ -532,12 +585,26 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
         WHERE p.matchId = ?
       `).all(row.id) as any[];
 
+      let contactedOwnersMap: Record<string, { contacted: boolean; method?: string; contactedAt?: string; notes?: string }> = {};
+      if (row.contactedOwners) {
+        try {
+          contactedOwnersMap = JSON.parse(row.contactedOwners);
+        } catch {
+          contactedOwnersMap = {};
+        }
+      }
+
       const detailedParticipants = participants.map((p) => {
         const listing = getDbListingById(p.listingId);
+        const contactInfo = contactedOwnersMap[p.ownerId] || { contacted: false };
         return {
           ...p,
           response: p.responseDecision || "accepted",
           respondedAt: p.respondedAt || row.updatedAt,
+          contacted: Boolean(contactInfo.contacted),
+          contactMethod: contactInfo.method || null,
+          contactedAt: contactInfo.contactedAt || null,
+          contactNotes: contactInfo.notes || null,
           property: listing ? {
             id: listing.id,
             title: listing.title,
@@ -559,8 +626,12 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
       const timeline = db.prepare(`
         SELECT * FROM coordination_timeline 
         WHERE matchId = ? 
-        ORDER BY createdAt DESC LIMIT 15
+        ORDER BY createdAt DESC LIMIT 25
       `).all(row.id);
+
+      const resolvedStatus = row.coordinationStatus || "awaiting_coordination";
+      const resolvedStage = row.coordinationStage || dbStatusToDefaultStage(resolvedStatus);
+      const isDemo = Boolean(row.isDemo || row.coordIsDemo || String(row.id).startsWith("match-demo-"));
 
       return {
         id: row.id,
@@ -568,7 +639,20 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
         matchType: row.matchType,
         partyCount: row.partyCount,
         status: row.status,
-        coordinationStatus: row.coordinationStatus || "awaiting_coordination",
+        coordinationStatus: resolvedStatus,
+        coordinationStage: resolvedStage,
+        nextAction: row.nextAction || (
+          resolvedStage === "meeting_scheduled"
+            ? "Conduct scheduled joint property verification meeting and confirm documentation checklist."
+            : resolvedStage === "legal_documentation_in_progress"
+            ? "Review title extracts and encumbrance certificates with legal team."
+            : "Initiate outreach calls with participating owners to align verification & meeting timing."
+        ),
+        contactInitiated: Boolean(row.contactInitiated) || Object.values(contactedOwnersMap).some((v) => v?.contacted),
+        contactedOwners: contactedOwnersMap,
+        lastFollowUpAt: row.lastFollowUpAt || null,
+        followUpSummary: row.followUpSummary || null,
+        isDemo,
         totalAbsoluteBoot: row.totalAbsoluteBoot,
         explanation: row.explanation,
         siteVisitDate: row.siteVisitDate || null,
@@ -589,7 +673,13 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
         e.ref.toLowerCase().includes(q) ||
         e.id.toLowerCase().includes(q) ||
         e.explanation.toLowerCase().includes(q) ||
-        e.participants.some((p: any) => p.ownerName.toLowerCase().includes(q) || p.ownerEmail?.toLowerCase().includes(q))
+        e.participants.some((p: any) =>
+          p.ownerName.toLowerCase().includes(q) ||
+          p.ownerEmail?.toLowerCase().includes(q) ||
+          p.property?.title?.toLowerCase().includes(q) ||
+          p.property?.locality?.toLowerCase().includes(q) ||
+          p.property?.district?.toLowerCase().includes(q)
+        )
       );
       return res.json({ success: true, count: filtered.length, data: filtered });
     }
@@ -601,13 +691,13 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
   }
 });
 
-// Update exchange coordination status
+// Update exchange coordination status, stage, next action, or follow-up summary
 adminRouter.patch("/exchanges/:id/status", (req: Request, res: Response) => {
   try {
     const matchId = String(req.params.id);
-    const { status, notes } = req.body;
+    const { status, coordinationStage, nextAction, followUpSummary, contactInitiated, notes } = req.body;
 
-    const validStatuses = [
+    const validLegacyStatuses = [
       "awaiting_coordination",
       "coordination_in_progress",
       "site_visit_pending",
@@ -617,24 +707,64 @@ adminRouter.patch("/exchanges/:id/status", (req: Request, res: Response) => {
       "closed"
     ];
 
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, error: "Invalid coordination status value." });
+    const validStages = [
+      "all_owners_accepted",
+      "awaiting_team_contact",
+      "contact_initiated",
+      "meeting_to_be_scheduled",
+      "meeting_scheduled",
+      "legal_documentation_in_progress",
+      "awaiting_further_action",
+      "closed"
+    ];
+
+    let resolvedStage = coordinationStage && validStages.includes(coordinationStage) ? coordinationStage : undefined;
+    let resolvedStatus = status && validLegacyStatuses.includes(status) ? status : undefined;
+
+    if (!resolvedStatus && resolvedStage) {
+      resolvedStatus = stageToDbStatus(resolvedStage);
+    } else if (resolvedStatus && !resolvedStage) {
+      resolvedStage = dbStatusToDefaultStage(resolvedStatus);
+    }
+
+    if (!resolvedStatus) {
+      return res.status(400).json({ success: false, error: "Valid coordination status or stage value is required." });
     }
 
     const match = db.prepare("SELECT * FROM matches WHERE id = ?").get(matchId) as any;
     if (!match) {
       return res.status(404).json({ success: false, error: "Exchange proposal not found." });
     }
+    if (match.status !== "accepted") {
+      return res.status(400).json({ success: false, error: "Coordination can only be managed once all owners have accepted the exchange." });
+    }
 
     const now = new Date().toISOString();
     const admin = req.user!;
+    const trimmedNotes = notes ? String(notes).trim() : null;
+    const trimmedNextAction = nextAction !== undefined ? String(nextAction).trim() : undefined;
+    const trimmedFollowUp = followUpSummary !== undefined ? String(followUpSummary).trim() : undefined;
+    const contactFlag = contactInitiated !== undefined ? (contactInitiated ? 1 : 0) : undefined;
 
     runInTransaction(() => {
+      const existingCoord = db.prepare("SELECT * FROM exchange_coordinations WHERE matchId = ?").get(matchId) as any;
+      const finalContactInit = contactFlag !== undefined ? contactFlag : (existingCoord?.contactInitiated ?? (resolvedStage === "contact_initiated" ? 1 : 0));
+      const finalNextAction = trimmedNextAction !== undefined ? trimmedNextAction : (existingCoord?.nextAction ?? null);
+      const finalFollowUp = trimmedFollowUp !== undefined ? trimmedFollowUp : (existingCoord?.followUpSummary ?? null);
+
       db.prepare(`
-        INSERT INTO exchange_coordinations (id, matchId, status, coordinationNotes, assignedAdminId, assignedAdminName, updatedAt, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO exchange_coordinations (
+          id, matchId, status, coordinationStage, nextAction, contactInitiated, followUpSummary,
+          lastFollowUpAt, coordinationNotes, assignedAdminId, assignedAdminName, updatedAt, createdAt
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(matchId) DO UPDATE SET 
           status = excluded.status,
+          coordinationStage = excluded.coordinationStage,
+          nextAction = excluded.nextAction,
+          contactInitiated = excluded.contactInitiated,
+          followUpSummary = excluded.followUpSummary,
+          lastFollowUpAt = CASE WHEN excluded.followUpSummary IS NOT NULL OR excluded.contactInitiated = 1 THEN excluded.updatedAt ELSE lastFollowUpAt END,
           coordinationNotes = COALESCE(excluded.coordinationNotes, coordinationNotes),
           assignedAdminId = excluded.assignedAdminId,
           assignedAdminName = excluded.assignedAdminName,
@@ -642,13 +772,21 @@ adminRouter.patch("/exchanges/:id/status", (req: Request, res: Response) => {
       `).run(
         `coord-${matchId}`,
         matchId,
-        status,
-        notes || null,
+        resolvedStatus,
+        resolvedStage,
+        finalNextAction,
+        finalContactInit,
+        finalFollowUp,
+        finalContactInit ? now : null,
+        trimmedNotes,
         admin.id,
         admin.name,
         now,
         now
       );
+
+      const stageText = (resolvedStage || resolvedStatus).replace(/_/g, " ");
+      const logMessage = `Stage updated to '${stageText}'${finalNextAction ? ` • Next action: ${finalNextAction}` : ""}${trimmedNotes ? ` • Notes: ${trimmedNotes}` : ""}`;
 
       // Record in coordination timeline
       db.prepare(`
@@ -657,7 +795,7 @@ adminRouter.patch("/exchanges/:id/status", (req: Request, res: Response) => {
       `).run(
         `time-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         matchId,
-        `Status updated to '${status.replace(/_/g, " ")}'${notes ? `: ${notes}` : ""}`,
+        logMessage,
         admin.name,
         admin.id,
         now
@@ -668,9 +806,9 @@ adminRouter.patch("/exchanges/:id/status", (req: Request, res: Response) => {
         INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
         VALUES (?, 'exchange_coordination', ?, 'admin_update_coordination_status', ?, ?, ?)
       `).run(
-        `log-${Date.now()}`,
+        `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         matchId,
-        JSON.stringify({ newStatus: status, notes, adminName: admin.name }),
+        JSON.stringify({ newStatus: resolvedStatus, coordinationStage: resolvedStage, nextAction: finalNextAction, notes: trimmedNotes, adminName: admin.name }),
         admin.name,
         now
       );
@@ -678,7 +816,146 @@ adminRouter.patch("/exchanges/:id/status", (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: `Coordination status updated to '${status.replace(/_/g, " ")}'.`
+      message: `Coordination stage updated to '${(resolvedStage || resolvedStatus).replace(/_/g, " ")}'.`,
+      data: { coordinationStatus: resolvedStatus, coordinationStage: resolvedStage }
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Log team follow-up / outreach attempt with specific participant owner(s)
+adminRouter.post("/exchanges/:id/contact-log", (req: Request, res: Response) => {
+  try {
+    const matchId = String(req.params.id);
+    const { ownerId, method, contacted = true, followUpNote, nextAction } = req.body;
+
+    const match = db.prepare("SELECT * FROM matches WHERE id = ?").get(matchId) as any;
+    if (!match) {
+      return res.status(404).json({ success: false, error: "Exchange proposal not found." });
+    }
+    if (match.status !== "accepted") {
+      return res.status(400).json({ success: false, error: "Only unanimously accepted exchanges can be coordinated." });
+    }
+
+    const participants = db.prepare("SELECT ownerId, ownerName FROM match_participants WHERE matchId = ?").all(matchId) as Array<{ ownerId: string; ownerName: string }>;
+    const now = new Date().toISOString();
+    const admin = req.user!;
+    const cleanMethod = method ? String(method).trim() : "Phone Call";
+    const cleanNote = followUpNote ? String(followUpNote).trim() : "";
+
+    let updatedMap: Record<string, { contacted: boolean; method?: string; contactedAt?: string; notes?: string }> = {};
+    let resultingStage = "contact_initiated";
+    let resultingStatus = "coordination_in_progress";
+    let resultingNextAction: string | null = null;
+    let resultingSummary = "";
+
+    runInTransaction(() => {
+      const coordRow = db.prepare("SELECT * FROM exchange_coordinations WHERE matchId = ?").get(matchId) as any;
+      if (coordRow?.contactedOwners) {
+        try {
+          updatedMap = JSON.parse(coordRow.contactedOwners);
+        } catch {
+          updatedMap = {};
+        }
+      }
+
+      const targets = ownerId
+        ? participants.filter((p) => p.ownerId === ownerId)
+        : participants;
+
+      for (const t of targets) {
+        updatedMap[t.ownerId] = {
+          contacted: Boolean(contacted),
+          method: cleanMethod,
+          contactedAt: now,
+          notes: cleanNote || updatedMap[t.ownerId]?.notes || `Outreach via ${cleanMethod}`
+        };
+      }
+
+      const currentStage = coordRow?.coordinationStage || dbStatusToDefaultStage(coordRow?.status);
+      if (["all_owners_accepted", "awaiting_team_contact"].includes(currentStage)) {
+        resultingStage = "contact_initiated";
+        resultingStatus = "coordination_in_progress";
+      } else {
+        resultingStage = currentStage;
+        resultingStatus = coordRow?.status || stageToDbStatus(resultingStage);
+      }
+
+      const targetNames = targets.map((t) => t.ownerName).join(", ") || "Participants";
+      resultingSummary = cleanNote || `${cleanMethod} outreach logged for ${targetNames}`;
+      resultingNextAction = nextAction !== undefined ? String(nextAction).trim() : (coordRow?.nextAction ?? null);
+
+      db.prepare(`
+        INSERT INTO exchange_coordinations (
+          id, matchId, status, coordinationStage, nextAction, contactInitiated, contactedOwners,
+          lastFollowUpAt, followUpSummary, assignedAdminId, assignedAdminName, updatedAt, createdAt
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(matchId) DO UPDATE SET
+          status = excluded.status,
+          coordinationStage = excluded.coordinationStage,
+          nextAction = COALESCE(excluded.nextAction, nextAction),
+          contactInitiated = 1,
+          contactedOwners = excluded.contactedOwners,
+          lastFollowUpAt = excluded.lastFollowUpAt,
+          followUpSummary = excluded.followUpSummary,
+          assignedAdminId = excluded.assignedAdminId,
+          assignedAdminName = excluded.assignedAdminName,
+          updatedAt = excluded.updatedAt
+      `).run(
+        `coord-${matchId}`,
+        matchId,
+        resultingStatus,
+        resultingStage,
+        resultingNextAction,
+        1,
+        JSON.stringify(updatedMap),
+        now,
+        resultingSummary,
+        admin.id,
+        admin.name,
+        now,
+        coordRow?.createdAt || now
+      );
+
+      db.prepare(`
+        INSERT INTO coordination_timeline (id, matchId, action, notes, performedBy, performedById, createdAt)
+        VALUES (?, ?, 'team_follow_up', ?, ?, ?, ?)
+      `).run(
+        `time-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        matchId,
+        `${cleanMethod} follow-up with ${targetNames}: ${cleanNote || "Recorded contact attempt"}${resultingNextAction ? ` • Next Action: ${resultingNextAction}` : ""}`,
+        admin.name,
+        admin.id,
+        now
+      );
+
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'exchange_coordination', ?, 'admin_log_outreach', ?, ?, ?)
+      `).run(
+        `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        matchId,
+        JSON.stringify({ ownerId: ownerId || "all", method: cleanMethod, contacted: Boolean(contacted), followUpNote: cleanNote }),
+        admin.name,
+        now
+      );
+    });
+
+    res.json({
+      success: true,
+      message: "Team outreach and follow-up record saved.",
+      data: {
+        contactedOwners: updatedMap,
+        contactInitiated: true,
+        coordinationStage: resultingStage,
+        coordinationStatus: resultingStatus,
+        lastFollowUpAt: now,
+        followUpSummary: resultingSummary,
+        nextAction: resultingNextAction
+      }
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -690,7 +967,7 @@ adminRouter.patch("/exchanges/:id/status", (req: Request, res: Response) => {
 adminRouter.post("/exchanges/:id/site-visit", (req: Request, res: Response) => {
   try {
     const matchId = String(req.params.id);
-    const { siteVisitDate, siteVisitLocation, siteVisitNotes } = req.body;
+    const { siteVisitDate, siteVisitLocation, siteVisitNotes, nextAction } = req.body;
 
     if (!siteVisitDate) {
       return res.status(400).json({ success: false, error: "Site visit date is required." });
@@ -707,12 +984,18 @@ adminRouter.post("/exchanges/:id/site-visit", (req: Request, res: Response) => {
     runInTransaction(() => {
       db.prepare(`
         INSERT INTO exchange_coordinations (
-          id, matchId, status, siteVisitDate, siteVisitLocation, siteVisitNotes, 
+          id, matchId, status, coordinationStage, nextAction, contactInitiated, lastFollowUpAt, followUpSummary,
+          siteVisitDate, siteVisitLocation, siteVisitNotes, 
           assignedAdminId, assignedAdminName, updatedAt, createdAt
         )
-        VALUES (?, ?, 'site_visit_scheduled', ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, 'site_visit_scheduled', 'meeting_scheduled', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(matchId) DO UPDATE SET 
           status = 'site_visit_scheduled',
+          coordinationStage = 'meeting_scheduled',
+          nextAction = COALESCE(excluded.nextAction, nextAction),
+          contactInitiated = 1,
+          lastFollowUpAt = excluded.lastFollowUpAt,
+          followUpSummary = excluded.followUpSummary,
           siteVisitDate = excluded.siteVisitDate,
           siteVisitLocation = excluded.siteVisitLocation,
           siteVisitNotes = excluded.siteVisitNotes,
@@ -722,6 +1005,9 @@ adminRouter.post("/exchanges/:id/site-visit", (req: Request, res: Response) => {
       `).run(
         `coord-${matchId}`,
         matchId,
+        nextAction ? String(nextAction).trim() : `Conduct meeting on ${new Date(siteVisitDate).toLocaleDateString("en-IN")} and confirm original property documents.`,
+        now,
+        `Meeting scheduled for ${new Date(siteVisitDate).toLocaleDateString("en-IN")}${siteVisitLocation ? ` at ${siteVisitLocation}` : ""}`,
         siteVisitDate,
         siteVisitLocation || "Participating property site inspection",
         siteVisitNotes || null,
@@ -761,7 +1047,7 @@ adminRouter.post("/exchanges/:id/site-visit", (req: Request, res: Response) => {
       for (const p of participantRows) {
         db.prepare(`
           INSERT INTO notifications (id, userId, role, title, message, type, entityId, link, createdAt)
-          VALUES (?, ?, 'owner', 'Site Visit Inspection Scheduled', ?, 'site_visit_scheduled', ?, '/proposals', ?)
+          VALUES (?, ?, 'owner', 'Site Visit Inspection Scheduled', ?, 'site_visit_scheduled', ?, '/swap?tab=accepted', ?)
         `).run(
           `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           p.ownerId,

@@ -925,7 +925,7 @@ apiRouter.post("/workflow/respond", requireAuth, requireRole("owner", "admin"), 
           if (l) {
             db.prepare(`
               INSERT INTO notifications (id, userId, role, title, message, type, entityId, link, createdAt)
-              VALUES (?, ?, 'owner', 'Exchange Consensus Achieved', ?, 'exchange_accepted', ?, '/proposals', ?)
+              VALUES (?, ?, 'owner', 'Exchange Consensus Achieved', ?, 'exchange_accepted', ?, '/swap?tab=accepted', ?)
             `).run(
               `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               l.ownerId,
@@ -1187,12 +1187,13 @@ apiRouter.get("/proposals", requireAuth, (req: Request, res: Response) => {
       const sanitizedCoord = coordRow
         ? {
             status: coordRow.status,
+            coordinationStage: coordRow.coordinationStage || null,
             siteVisitDate: coordRow.siteVisitDate || null,
             siteVisitLocation: coordRow.siteVisitLocation || null,
             siteVisitNotes: coordRow.siteVisitNotes || null,
             updatedAt: coordRow.updatedAt
           }
-        : { status: "awaiting_coordination" };
+        : { status: "awaiting_coordination", coordinationStage: "awaiting_team_contact" };
 
       return {
         id: m.id,
