@@ -1,6 +1,13 @@
 import type { ApiResponse, DashboardStats, Listing, Match, User } from "./types.js";
+import {
+  ApiClientError,
+  extractErrorDetails,
+  parseApiResponseBody,
+  resolveApiBaseUrl,
+  sanitizeClientErrorMessage
+} from "./utils/apiError.js";
 
-const BASE_URL = "/api";
+const BASE_URL = resolveApiBaseUrl();
 
 export interface AuthResult {
   user: User;
@@ -41,25 +48,43 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
         ...(options?.headers as Record<string, string>)
       }
     });
-  } catch (networkErr: any) {
-    throw new Error(`Network error: ${networkErr?.message || "Failed to communicate with server."}`);
-  }
-
-  let data: any;
-  const text = await res.text();
-  try {
-    data = text ? JSON.parse(text) : {};
   } catch {
-    data = { error: text || `HTTP error! status: ${res.status}` };
+    throw new ApiClientError({
+      message: "We are unable to connect right now. Please try again.",
+      status: 0,
+      code: "NETWORK_ERROR"
+    });
   }
 
-  if (!res.ok || data.success === false) {
-    const errorMsg = data.error || data.message || `HTTP error! status: ${res.status}`;
-    const err = new Error(errorMsg);
-    (err as any).status = res.status;
-    (err as any).data = data;
-    throw err;
+  const contentType = typeof res.headers?.get === "function" ? res.headers.get("content-type") : null;
+  const text = await res.text();
+  const { parsed: data, isHtml } = parseApiResponseBody(text, contentType);
+
+  if (!res.ok || data?.success === false || isHtml) {
+    const { code, rawMessage } = extractErrorDetails(data);
+    const resolvedStatus = isHtml && res.ok ? 502 : res.status;
+
+    if (
+      resolvedStatus === 401 &&
+      typeof window !== "undefined" &&
+      url !== "/auth/login" &&
+      url !== "/auth/me" &&
+      url !== "/auth/register" &&
+      url !== "/auth/broker-apply"
+    ) {
+      localStorage.removeItem("asset_swap_token");
+      window.dispatchEvent(new CustomEvent("asset-swap:session-expired"));
+    }
+
+    const safeMessage = sanitizeClientErrorMessage(rawMessage, resolvedStatus);
+    throw new ApiClientError({
+      message: safeMessage,
+      status: resolvedStatus,
+      code: isHtml ? "HTML_ERROR_RESPONSE" : code,
+      data
+    });
   }
+
   return data as T;
 }
 

@@ -15,6 +15,8 @@
     "test:all": "vitest run",
     "typecheck": "tsc --noEmit",
     "server": "tsx src/server/index.ts",
+    "server:watch": "tsx watch src/server/index.ts",
+    "start": "NODE_ENV=production tsx src/server/index.ts",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"

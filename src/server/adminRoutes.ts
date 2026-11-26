@@ -89,7 +89,14 @@ adminRouter.get("/users", (req: Request, res: Response) => {
 
 adminRouter.get("/users/:id", (req: Request, res: Response) => {
   try {
-    const userId = String(req.params.id);
+    const userId = decodeURIComponent(String(req.params.id || "")).trim();
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_USER_ID", message: "A valid user ID is required." }
+      });
+    }
+
     const user = db.prepare(`
       SELECT id, name, email, role, status, phone, agency, licenseNumber,
              jurisdiction, experienceYears, rejectionReason, createdAt, updatedAt
@@ -98,7 +105,10 @@ adminRouter.get("/users/:id", (req: Request, res: Response) => {
     `).get(userId) as Record<string, unknown> | undefined;
 
     if (!user) {
-      return res.status(404).json({ success: false, error: "User not found." });
+      return res.status(404).json({
+        success: false,
+        error: { code: "USER_NOT_FOUND", message: "The requested user account could not be found." }
+      });
     }
 
     const properties = (db.prepare(`

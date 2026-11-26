@@ -34,6 +34,7 @@ import { DashboardLayout, type NavItem } from "../components/DashboardLayout.js"
 import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import { getPropertyStatusMeta } from "../utils/statusLabels.js";
+import { getContextualErrorMessage } from "../utils/apiError.js";
 import { formatCurrency } from "../components/PropertyCard.js";
 import { PropertyImageGallery } from "../components/PropertyImageGallery.js";
 import type { Listing, ComparableProperty, ConsentStatus, PropertyType, AreaUnit } from "../types.js";
@@ -96,6 +97,7 @@ export const BrokerDashboardPage: React.FC = () => {
   // Broker-assisted Registration Wizard State
   const [regStep, setRegStep] = useState<number>(1);
   const [isSubmittingReg, setIsSubmittingReg] = useState<boolean>(false);
+  const [regError, setRegError] = useState<{ message: string; isRetryable: boolean } | null>(null);
   const [ownerForm, setOwnerForm] = useState({
     name: "",
     phone: "",
@@ -239,12 +241,19 @@ export const BrokerDashboardPage: React.FC = () => {
 
   const handleRegisterOnBehalfOfOwner = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingReg) return; // Prevent duplicate submissions while request is processing
+    setRegError(null);
+
     if (!ownerForm.name.trim() || !ownerForm.phone.trim()) {
-      setFeedback({ message: "Owner name and valid phone number are required.", type: "error" });
+      const msg = "Owner full name and phone number are required.";
+      setRegError({ message: msg, isRetryable: false });
+      setFeedback({ message: msg, type: "error" });
       return;
     }
-    if (!propForm.title.trim() || !propForm.area || !propForm.ownerDeclaredValue) {
-      setFeedback({ message: "Property title, area, and owner-declared value are required.", type: "error" });
+    if (!propForm.title.trim() || !propForm.area || Number(propForm.area) <= 0 || !propForm.ownerDeclaredValue || Number(propForm.ownerDeclaredValue) <= 0) {
+      const msg = "Please enter a valid property title, positive area, and positive valuation.";
+      setRegError({ message: msg, isRetryable: false });
+      setFeedback({ message: msg, type: "error" });
       return;
     }
 
@@ -328,10 +337,16 @@ export const BrokerDashboardPage: React.FC = () => {
       });
 
       // Reload and switch to submissions tab
+      setRegError(null);
       await loadData();
       setActiveTab("submissions");
     } catch (err: any) {
-      setFeedback({ message: err.message || "Failed to register property.", type: "error" });
+      const parsed = getContextualErrorMessage(
+        err,
+        "We couldn't register the property. Please review your details and try again."
+      );
+      setRegError({ message: parsed.message, isRetryable: parsed.isRetryable });
+      setFeedback({ message: parsed.message, type: "error" });
     } finally {
       setIsSubmittingReg(false);
     }
@@ -1313,11 +1328,33 @@ export const BrokerDashboardPage: React.FC = () => {
                     </span>
                   </div>
 
+                  {regError && (
+                    <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900 flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold block">Registration Could Not Be Completed</span>
+                          <span className="text-red-800">{regError.message}</span>
+                        </div>
+                      </div>
+                      {regError.isRetryable && (
+                        <button
+                          type="submit"
+                          disabled={isSubmittingReg}
+                          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold shrink-0"
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex justify-between pt-4">
                     <button
                       type="button"
+                      disabled={isSubmittingReg}
                       onClick={() => setRegStep(3)}
-                      className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50"
+                      className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 disabled:opacity-50"
                     >
                       Back
                     </button>
@@ -1326,7 +1363,7 @@ export const BrokerDashboardPage: React.FC = () => {
                       disabled={isSubmittingReg}
                       className="px-6 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-2 shadow-xs"
                     >
-                      {isSubmittingReg ? "Submitting..." : "Submit Registration"}
+                      {isSubmittingReg ? "Registering Property..." : "Submit Registration"}
                       <Send className="w-3.5 h-3.5" />
                     </button>
                   </div>

@@ -6,6 +6,7 @@ import fs from "node:fs";
 import { initDatabase } from "./db.js";
 import { authMiddleware } from "./auth.js";
 import { apiRouter } from "./routes.js";
+import { apiErrorHandler, apiNotFoundHandler } from "./errorHandler.js";
 
 export const app = express();
 const PORT = process.env.PORT || 3001;
@@ -45,21 +46,27 @@ initDatabase();
 app.use("/api", apiRouter);
 
 // Health check
-app.get("/health", (req, res) => {
+app.get(["/health", "/api/health"], (req, res) => {
   res.json({ status: "healthy", timestamp: new Date().toISOString() });
 });
+
+// Unmatched API routes return structured JSON 404 (never Express HTML or SPA fallback)
+app.use("/api", apiNotFoundHandler);
 
 // Serve frontend build if exists
 const distPath = path.resolve(process.cwd(), "dist");
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.use((req, res, next) => {
-    if (req.method === "GET" && !req.path.startsWith("/api")) {
+    if (req.method === "GET" && req.path !== "/api" && !req.path.startsWith("/api/")) {
       return res.sendFile(path.join(distPath, "index.html"));
     }
     next();
   });
 }
+
+// Centralized API & Application JSON Error Middleware (must stay last)
+app.use(apiErrorHandler);
 
 // Start server if not imported as module in tests
 if (process.env.NODE_ENV !== "test") {

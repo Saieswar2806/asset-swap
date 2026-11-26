@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { db, getAllDbListings, getDbListingById, rowToListing, runInTransaction, type DbListingRow } from "./db.js";
+import { db, generateNextListingId, getAllDbListings, getDbListingById, rowToListing, runInTransaction, type DbListingRow } from "./db.js";
 import { findMatches, eligible } from "../matcher.js";
 import { MatchWorkflow } from "../workflow.js";
 import { resolveCoordinates } from "../location.js";
@@ -286,9 +286,8 @@ apiRouter.post("/listings", requireAuth, requireRole("owner", "admin"), (req: Re
     const ownerId = req.user!.id;
     const ownerName = req.user!.name;
 
-    // Generate listing ID
-    const countRow = db.prepare("SELECT COUNT(*) as count FROM listings").get() as { count: number };
-    const id = `ASSET-${String(countRow.count + 1).padStart(3, "0")}`;
+    // Generate unique listing ID
+    const id = generateNextListingId();
     const now = new Date().toISOString();
 
     // Default image based on property type

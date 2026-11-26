@@ -1577,6 +1577,26 @@ export function rowToListing(row: DbListingRow): Listing {
   };
 }
 
+export function generateNextListingId(): string {
+  const rows = db.prepare("SELECT id FROM listings WHERE id LIKE 'ASSET-%'").all() as Array<{ id: string }>;
+  let maxNum = rows.length;
+  for (const r of rows) {
+    const match = /^ASSET-(\d+)$/.exec(r.id);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > maxNum) maxNum = n;
+    }
+  }
+  let candidateNum = maxNum + 1;
+  let candidate = `ASSET-${String(candidateNum).padStart(3, "0")}`;
+  const checkStmt = db.prepare("SELECT 1 FROM listings WHERE id = ?");
+  while (checkStmt.get(candidate)) {
+    candidateNum += 1;
+    candidate = `ASSET-${String(candidateNum).padStart(3, "0")}`;
+  }
+  return candidate;
+}
+
 export function getAllDbListings(): Listing[] {
   const query = `
     SELECT l.*, 

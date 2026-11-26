@@ -32,6 +32,14 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     refreshUser().finally(() => setLoading(false));
+
+    const handleSessionExpired = () => {
+      setCurrentUser(null);
+    };
+    window.addEventListener("asset-swap:session-expired", handleSessionExpired);
+    return () => {
+      window.removeEventListener("asset-swap:session-expired", handleSessionExpired);
+    };
   }, []);
 
   const login = async (email: string, password: string): Promise<User> => {

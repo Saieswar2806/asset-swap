@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { db, getDbListingById, rowToListing, runInTransaction, type DbListingRow } from "./db.js";
+import { db, generateNextListingId, getDbListingById, rowToListing, runInTransaction, type DbListingRow } from "./db.js";
 import { requireAuth, requireRole } from "./auth.js";
 import { resolveCoordinates } from "../location.js";
 import { hashPassword } from "./password.js";
@@ -325,11 +325,13 @@ brokerRouter.post("/register-owner-property", (req: Request, res: Response) => {
       !property?.district ||
       !property?.locality ||
       !property?.area ||
-      !property?.ownerDeclaredValue
+      !property?.ownerDeclaredValue ||
+      Number(property.area) <= 0 ||
+      Number(property.ownerDeclaredValue) <= 0
     ) {
       return res.status(400).json({
         success: false,
-        error: "Missing mandatory property fields (title, propertyType, district, locality, area, ownerDeclaredValue)."
+        error: "Valid property fields (title, propertyType, district, locality, positive area, positive ownerDeclaredValue) are required."
       });
     }
 
@@ -379,11 +381,10 @@ brokerRouter.post("/register-owner-property", (req: Request, res: Response) => {
       };
     }
 
-    // 2. Resolve Property ID & Images
-    const countRow = db.prepare("SELECT COUNT(*) as count FROM listings").get() as { count: number };
-    const id = `ASSET-${String(countRow.count + 1).padStart(3, "0")}`;
-
-    const gallery = getPropertyImages(property.propertyType, countRow.count + 1, property.images, property.imageUrl);
+    // 2. Resolve unique Property ID & Images
+    const id = generateNextListingId();
+    const numericSuffix = parseInt(id.replace(/\D/g, ""), 10) || Date.now();
+    const gallery = getPropertyImages(property.propertyType, numericSuffix, property.images, property.imageUrl);
     const imageUrl = gallery[0] || getPropertyTypeFallback(property.propertyType);
 
     // 3. Resolve Coordinates
@@ -512,7 +513,7 @@ brokerRouter.post("/register-owner-property", (req: Request, res: Response) => {
         INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
         VALUES (?, 'listing', ?, 'broker_assisted_property_registration', ?, ?, ?)
       `).run(
-        `log-${Date.now()}`,
+        `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         id,
         JSON.stringify({
           brokerId: broker.id,
@@ -532,7 +533,7 @@ brokerRouter.post("/register-owner-property", (req: Request, res: Response) => {
         INSERT INTO notifications (id, userId, role, title, message, type, link, entityId, isRead, createdAt)
         VALUES (?, NULL, 'admin', ?, ?, 'info', ?, ?, 0, ?)
       `).run(
-        `notif-${Date.now()}`,
+        `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         `Broker Registration (${validIntent.toUpperCase()}): ${property.title}`,
         `Broker ${broker.name} registered property "${property.title}" on behalf of owner ${resolvedOwner.name} [Consent: ${consentStatus}].`,
         `/admin`,

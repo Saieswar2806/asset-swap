@@ -18,6 +18,7 @@ export const MyPropertiesPage: React.FC = () => {
   const [editTitle, setEditTitle] = useState("");
   const [editValue, setEditValue] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -43,11 +44,13 @@ export const MyPropertiesPage: React.FC = () => {
     setEditingListing(listing);
     setEditTitle(listing.metadata?.title as string || "");
     setEditValue(String(listing.ownerDeclaredValue || ""));
+    setEditError(null);
   };
 
   const handleSaveEdit = async () => {
-    if (!editingListing) return;
+    if (!editingListing || savingEdit) return;
     setSavingEdit(true);
+    setEditError(null);
     try {
       await api.updateListing(editingListing.id, {
         title: editTitle,
@@ -58,7 +61,7 @@ export const MyPropertiesPage: React.FC = () => {
       setListings(updated);
       setEditingListing(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update listing");
+      setEditError(err instanceof Error ? err.message : "We couldn't update your property details. Please try again.");
     } finally {
       setSavingEdit(false);
     }
@@ -195,6 +198,12 @@ export const MyPropertiesPage: React.FC = () => {
             <h3 className="text-base font-bold text-slate-900">
               Edit Property #{editingListing.id}
             </h3>
+
+            {editError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800">
+                {editError}
+              </div>
+            )}
 
             <div className="space-y-3 text-xs">
               <div>

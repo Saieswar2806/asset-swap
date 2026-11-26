@@ -20,6 +20,7 @@ import {
 import { api } from "../api.js";
 import { formatCurrency } from "./PropertyCard.js";
 import { getPropertyStatusMeta, getPurchaseInterestStatusMeta } from "../utils/statusLabels.js";
+import { getContextualErrorMessage } from "../utils/apiError.js";
 
 interface UserDetailModalProps {
   userId: string | null;
@@ -34,18 +35,26 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
 }) => {
   const [user, setUser] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<{
+    message: string;
+    isRetryable: boolean;
+    isSessionExpired: boolean;
+  } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   const loadUser = async (id: string) => {
     setLoading(true);
-    setError(null);
+    setErrorState(null);
+    setActionError(null);
     setUser(null); // Prevent displaying previous user's state
     try {
       const data = await api.getAdminUserById(id);
       setUser(data);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load user details.");
+      setErrorState(
+        getContextualErrorMessage(err, "We couldn't load this user's details. Please try again.")
+      );
     } finally {
       setLoading(false);
     }
@@ -77,13 +86,15 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
   const handleToggleStatus = async () => {
     if (!user || actionLoading) return;
     setActionLoading(true);
+    setActionError(null);
     try {
       const next = user.status === "active" ? "suspended" : "active";
       await api.updateUserStatus(user.id, next);
       await loadUser(user.id);
       if (onStatusUpdated) onStatusUpdated();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to update account status.");
+      const parsed = getContextualErrorMessage(err, "We couldn't update the user status. Please try again.");
+      setActionError(parsed.message);
     } finally {
       setActionLoading(false);
     }
@@ -126,13 +137,53 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
               <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
               <p className="text-xs font-semibold text-slate-500">Loading verified user record...</p>
             </div>
-          ) : error ? (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-              <span>{error}</span>
+          ) : errorState ? (
+            <div className="p-5 bg-red-50 border border-red-200 rounded-2xl text-xs text-red-900 space-y-3">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-bold block">Unable to Load User Profile</span>
+                  <span className="text-red-800 block leading-relaxed">{errorState.message}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                {errorState.isRetryable && userId && (
+                  <button
+                    type="button"
+                    onClick={() => loadUser(userId)}
+                    className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors"
+                  >
+                    Retry
+                  </button>
+                )}
+                {errorState.isSessionExpired && (
+                  <a
+                    href="/login"
+                    className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition-colors"
+                  >
+                    Sign In Again
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-3.5 py-1.5 border border-red-200 bg-white hover:bg-red-100/40 text-red-800 rounded-lg text-xs font-semibold"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           ) : user ? (
             <>
+              {actionError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span>{actionError}</span>
+                  </div>
+                  <button type="button" onClick={() => setActionError(null)} className="text-red-500 hover:text-red-700 font-bold">✕</button>
+                </div>
+              )}
               {/* Core Identity Card */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
