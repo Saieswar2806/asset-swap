@@ -487,5 +487,80 @@ export const api = {
       method: "PATCH"
     });
     return { message: res.message || "Property sale listing deactivated" };
+  },
+
+  // ==========================================
+  // Admin Accepted Exchanges Coordination & Notifications
+  // ==========================================
+  getAdminAcceptedExchanges: async (params?: { status?: string; search?: string }): Promise<any[]> => {
+    const query = new URLSearchParams();
+    if (params?.status && params.status !== "all") query.set("status", params.status);
+    if (params?.search) query.set("search", params.search);
+    const qs = query.toString();
+    const res = await fetchJson<ApiResponse<any[]>>(`/admin/exchanges${qs ? `?${qs}` : ""}`);
+    return res.data || [];
+  },
+
+  updateExchangeCoordinationStatus: async (id: string, status: string, notes?: string): Promise<{ message: string }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/admin/exchanges/${id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, notes })
+    });
+    return { message: res.message || "Coordination status updated" };
+  },
+
+  scheduleSiteVisit: async (id: string, payload: { siteVisitDate: string; siteVisitLocation?: string; siteVisitNotes?: string }): Promise<{ message: string }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/admin/exchanges/${id}/site-visit`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    return { message: res.message || "Site visit scheduled successfully" };
+  },
+
+  addExchangeCoordinationNote: async (id: string, note: string): Promise<{ message: string }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/admin/exchanges/${id}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ note })
+    });
+    return { message: res.message || "Note added successfully" };
+  },
+
+  getAdminNotifications: async (): Promise<{ data: any[]; unreadCount: number }> => {
+    const res = await fetchJson<any>("/admin/notifications");
+    return { data: res.data || [], unreadCount: res.unreadCount || 0 };
+  },
+
+  markAdminNotificationRead: async (id: string): Promise<{ message: string }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/admin/notifications/${id}/read`, {
+      method: "PATCH"
+    });
+    return { message: res.message || "Notification marked as read" };
+  },
+
+  markAllAdminNotificationsRead: async (): Promise<{ message: string }> => {
+    const res = await fetchJson<ApiResponse<any>>("/admin/notifications/read-all", {
+      method: "PATCH"
+    });
+    return { message: res.message || "All notifications marked as read" };
+  },
+
+  // ==========================================
+  // Owner Exchanges Coordination & Notifications
+  // ==========================================
+  getOwnerAcceptedExchanges: async (): Promise<any[]> => {
+    const res = await fetchJson<ApiResponse<any[]>>("/owner/exchanges");
+    return res.data || [];
+  },
+
+  getOwnerNotifications: async (): Promise<{ data: any[]; unreadCount: number }> => {
+    const res = await fetchJson<any>("/owner/notifications");
+    return { data: res.data || [], unreadCount: res.unreadCount || 0 };
+  },
+
+  markOwnerNotificationRead: async (id: string): Promise<{ message: string }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/owner/notifications/${id}/read`, {
+      method: "PATCH"
+    });
+    return { message: res.message || "Notification marked as read" };
   }
 };

@@ -23,6 +23,7 @@ import { formatCurrency } from "../components/PropertyCard.js";
 import { useUser } from "../context/UserContext.js";
 import { ProposalConfirmModal } from "../components/ProposalConfirmModal.js";
 import { getPropertyThumbnail, getPropertyTypeFallback } from "../../propertyImages.js";
+import { BackButton } from "../components/BackButton.js";
 
 interface DetailedParticipant {
   listingId: string;
@@ -136,12 +137,7 @@ export const MatchDetailsPage: React.FC = () => {
     <div className="space-y-8 pb-16">
       {/* Back Link */}
       <div>
-        <Link
-          to="/matches"
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-blue-600 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" /> Back to Exchange Directory
-        </Link>
+        <BackButton defaultPath="/swap" label="Back to Swap Explorer" />
       </div>
 
       {/* Main Exchange Header */}
@@ -154,8 +150,8 @@ export const MatchDetailsPage: React.FC = () => {
               }`}>
                 {isDirect ? "2-Party Direct Bilateral Swap" : "3-Party Circular Trade Loop"}
               </span>
-              <span className="text-xs font-mono font-medium text-slate-400">
-                #{match.id}
+              <span className="text-xs font-mono font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                Ref: {match.id.replace("match-", "EXP-")}
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
@@ -176,7 +172,7 @@ export const MatchDetailsPage: React.FC = () => {
         {/* Workflow State Banner */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500">Transaction Escrow Status:</span>
+            <span className="text-xs font-semibold text-slate-500">Exchange Proposal Status:</span>
             <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${currentStatus.bg}`}>
               <StatusIcon className="w-3.5 h-3.5" />
               {currentStatus.text}
@@ -184,8 +180,8 @@ export const MatchDetailsPage: React.FC = () => {
           </div>
 
           {match.status === "proposed" && (
-            <span className="text-xs text-amber-700 font-semibold bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200 flex items-center gap-1">
-              <Lock className="w-3 h-3" /> All participant properties locked in escrow
+            <span className="text-xs text-blue-700 font-semibold bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200 flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5" /> Participating properties reserved for proposal evaluation
             </span>
           )}
         </div>
@@ -206,10 +202,10 @@ export const MatchDetailsPage: React.FC = () => {
           <div>
             <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-blue-600" />
-              Transaction Consensus & Lock Workflow
+              Exchange Consent & Verification
             </h3>
             <p className="text-xs text-slate-500">
-              Simulate individual participant responses. Unanimous acceptance confirms the transaction; any decline unlocks all properties.
+              Each participating property owner must independently accept this proposal. Unanimous acceptance advances the exchange to administrative coordination; a decline releases all property reservations.
             </p>
           </div>
 

@@ -96,9 +96,9 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ listing, onSelect, s
               {statusInfo.text}
             </span>
             {listing.locked && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/90 text-white shadow-sm backdrop-blur-md">
-                <Lock className="w-3 h-3" />
-                Locked in Escrow
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-600/95 text-white shadow-sm backdrop-blur-md">
+                <Clock className="w-3 h-3" />
+                Exchange Proposal Active
               </span>
             )}
           </div>

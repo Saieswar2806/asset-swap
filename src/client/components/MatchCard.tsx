@@ -49,20 +49,20 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, onPropose, proposin
               >
                 {isDirect ? "2-Party Direct Swap" : "3-Party Circular Exchange"}
               </span>
-              <span className="text-xs font-mono font-medium text-slate-400">
-                #{match.id}
+              <span className="text-xs font-mono font-medium text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded">
+                Ref: {match.id.replace("match-", "EXP-")}
               </span>
               {match.status && (
                 <span
                   className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
                     match.status === "proposed"
-                      ? "bg-amber-100 text-amber-800"
+                      ? "bg-blue-100 text-blue-800"
                       : match.status === "accepted"
                       ? "bg-emerald-100 text-emerald-800"
                       : "bg-red-100 text-red-800"
                   }`}
                 >
-                  {match.status}
+                  {match.status === "proposed" ? "Proposal Active" : match.status === "accepted" ? "Accepted" : "Declined"}
                 </span>
               )}
             </div>

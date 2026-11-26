@@ -18,6 +18,7 @@ import { useUser } from "../context/UserContext.js";
 import type { Listing } from "../types.js";
 import { formatCurrency } from "../components/PropertyCard.js";
 import { PropertyImageGallery } from "../components/PropertyImageGallery.js";
+import { BackButton } from "../components/BackButton.js";
 
 export const AdminReviewPage: React.FC = () => {
   const { currentUser } = useUser();
@@ -111,6 +112,10 @@ export const AdminReviewPage: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-12">
+      <div>
+        <BackButton defaultPath="/admin/dashboard" label="Back to Admin Dashboard" />
+      </div>
+
       {/* Admin Header */}
       <div className="bg-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-2">

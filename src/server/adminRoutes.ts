@@ -26,13 +26,15 @@ adminRouter.get("/metrics", (req: Request, res: Response) => {
 
     const activeProposals = (db.prepare("SELECT COUNT(*) as c FROM matches WHERE status = 'proposed'").get() as { c: number }).c;
     const completedTrades = (db.prepare("SELECT COUNT(*) as c FROM matches WHERE status = 'accepted'").get() as { c: number }).c;
+    const awaitingCoordination = (db.prepare("SELECT COUNT(*) as c FROM exchange_coordinations WHERE status IN ('awaiting_coordination', 'coordination_in_progress', 'site_visit_pending')").get() as { c: number })?.c || 0;
+    const unreadNotifications = (db.prepare("SELECT COUNT(*) as c FROM notifications WHERE role = 'admin' AND isRead = 0").get() as { c: number })?.c || 0;
 
     res.json({
       success: true,
       data: {
         users: { totalUsers, totalOwners, totalBrokers, pendingBrokers, activeBrokers },
         listings: { totalListings, awaitingReview, approvedListings, rejectedListings, lockedListings },
-        exchanges: { activeProposals, completedTrades }
+        exchanges: { activeProposals, completedTrades, awaitingCoordination, unreadNotifications }
       }
     });
   } catch (err: unknown) {
@@ -357,6 +359,376 @@ adminRouter.post("/listings/:id/review", (req: Request, res: Response) => {
     }
 
     return res.status(400).json({ success: false, error: "Invalid action. Use 'approve' or 'reject'." });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// ==========================================
+// 5. Accepted Exchanges Coordination Management
+// ==========================================
+
+// Get all accepted exchanges with coordination details and owner contact info (for staff coordination)
+adminRouter.get("/exchanges", (req: Request, res: Response) => {
+  try {
+    const { status, search } = req.query;
+
+    let query = `
+      SELECT m.*, 
+             c.id as coordId, c.status as coordinationStatus, 
+             c.siteVisitDate, c.siteVisitLocation, c.siteVisitNotes, 
+             c.coordinationNotes, c.assignedAdminId, c.assignedAdminName,
+             c.updatedAt as coordUpdatedAt
+      FROM matches m
+      LEFT JOIN exchange_coordinations c ON m.id = c.matchId
+      WHERE m.status = 'accepted'
+    `;
+    const params: unknown[] = [];
+
+    if (status && typeof status === "string" && status !== "all") {
+      query += " AND (c.status = ? OR (c.status IS NULL AND ? = 'awaiting_coordination'))";
+      params.push(status, status);
+    }
+
+    query += " ORDER BY m.updatedAt DESC";
+
+    const rows = db.prepare(query).all(...params) as any[];
+
+    const exchanges = rows.map((row) => {
+      // Fetch participants and link owner contact details for administrative contact
+      const participants = db.prepare(`
+        SELECT p.*, u.email as ownerEmail, u.phone as ownerPhone
+        FROM match_participants p
+        LEFT JOIN users u ON p.ownerId = u.id
+        WHERE p.matchId = ?
+      `).all(row.id) as any[];
+
+      const detailedParticipants = participants.map((p) => {
+        const listing = getDbListingById(p.listingId);
+        return {
+          ...p,
+          property: listing ? {
+            id: listing.id,
+            title: listing.title,
+            district: listing.district,
+            locality: listing.locality,
+            propertyType: listing.propertyType,
+            area: listing.area,
+            areaUnit: listing.areaUnit,
+            reviewedValue: listing.reviewedValue,
+            ownerDeclaredValue: listing.ownerDeclaredValue,
+            status: listing.status,
+            imageUrl: listing.imageUrl,
+            images: listing.images
+          } : null
+        };
+      });
+
+      // Fetch recent coordination timeline logs
+      const timeline = db.prepare(`
+        SELECT * FROM coordination_timeline 
+        WHERE matchId = ? 
+        ORDER BY createdAt DESC LIMIT 10
+      `).all(row.id);
+
+      return {
+        id: row.id,
+        ref: row.id.replace("match-", "EXP-"),
+        matchType: row.matchType,
+        partyCount: row.partyCount,
+        status: row.status,
+        coordinationStatus: row.coordinationStatus || "awaiting_coordination",
+        totalAbsoluteBoot: row.totalAbsoluteBoot,
+        explanation: row.explanation,
+        siteVisitDate: row.siteVisitDate || null,
+        siteVisitLocation: row.siteVisitLocation || null,
+        siteVisitNotes: row.siteVisitNotes || null,
+        coordinationNotes: row.coordinationNotes || null,
+        assignedAdminName: row.assignedAdminName || null,
+        acceptedAt: row.updatedAt,
+        participants: detailedParticipants,
+        timeline
+      };
+    });
+
+    if (search && typeof search === "string") {
+      const q = search.toLowerCase();
+      const filtered = exchanges.filter((e) =>
+        e.ref.toLowerCase().includes(q) ||
+        e.id.toLowerCase().includes(q) ||
+        e.explanation.toLowerCase().includes(q) ||
+        e.participants.some((p: any) => p.ownerName.toLowerCase().includes(q) || p.ownerEmail?.toLowerCase().includes(q))
+      );
+      return res.json({ success: true, count: filtered.length, data: filtered });
+    }
+
+    res.json({ success: true, count: exchanges.length, data: exchanges });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Update exchange coordination status
+adminRouter.patch("/exchanges/:id/status", (req: Request, res: Response) => {
+  try {
+    const matchId = String(req.params.id);
+    const { status, notes } = req.body;
+
+    const validStatuses = [
+      "awaiting_coordination",
+      "coordination_in_progress",
+      "site_visit_pending",
+      "site_visit_scheduled",
+      "legal_review_in_progress",
+      "completed",
+      "closed"
+    ];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, error: "Invalid coordination status value." });
+    }
+
+    const match = db.prepare("SELECT * FROM matches WHERE id = ?").get(matchId) as any;
+    if (!match) {
+      return res.status(404).json({ success: false, error: "Exchange proposal not found." });
+    }
+
+    const now = new Date().toISOString();
+    const admin = req.user!;
+
+    runInTransaction(() => {
+      db.prepare(`
+        INSERT INTO exchange_coordinations (id, matchId, status, coordinationNotes, assignedAdminId, assignedAdminName, updatedAt, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(matchId) DO UPDATE SET 
+          status = excluded.status,
+          coordinationNotes = COALESCE(excluded.coordinationNotes, coordinationNotes),
+          assignedAdminId = excluded.assignedAdminId,
+          assignedAdminName = excluded.assignedAdminName,
+          updatedAt = excluded.updatedAt
+      `).run(
+        `coord-${matchId}`,
+        matchId,
+        status,
+        notes || null,
+        admin.id,
+        admin.name,
+        now,
+        now
+      );
+
+      // Record in coordination timeline
+      db.prepare(`
+        INSERT INTO coordination_timeline (id, matchId, action, notes, performedBy, performedById, createdAt)
+        VALUES (?, ?, 'status_update', ?, ?, ?, ?)
+      `).run(
+        `time-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        matchId,
+        `Status updated to '${status.replace(/_/g, " ")}'${notes ? `: ${notes}` : ""}`,
+        admin.name,
+        admin.id,
+        now
+      );
+
+      // Audit log
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'exchange_coordination', ?, 'admin_update_coordination_status', ?, ?, ?)
+      `).run(
+        `log-${Date.now()}`,
+        matchId,
+        JSON.stringify({ newStatus: status, notes, adminName: admin.name }),
+        admin.name,
+        now
+      );
+    });
+
+    res.json({
+      success: true,
+      message: `Coordination status updated to '${status.replace(/_/g, " ")}'.`
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Schedule or update a site visit
+adminRouter.post("/exchanges/:id/site-visit", (req: Request, res: Response) => {
+  try {
+    const matchId = String(req.params.id);
+    const { siteVisitDate, siteVisitLocation, siteVisitNotes } = req.body;
+
+    if (!siteVisitDate) {
+      return res.status(400).json({ success: false, error: "Site visit date is required." });
+    }
+
+    const match = db.prepare("SELECT * FROM matches WHERE id = ?").get(matchId) as any;
+    if (!match) {
+      return res.status(404).json({ success: false, error: "Exchange proposal not found." });
+    }
+
+    const now = new Date().toISOString();
+    const admin = req.user!;
+
+    runInTransaction(() => {
+      db.prepare(`
+        INSERT INTO exchange_coordinations (
+          id, matchId, status, siteVisitDate, siteVisitLocation, siteVisitNotes, 
+          assignedAdminId, assignedAdminName, updatedAt, createdAt
+        )
+        VALUES (?, ?, 'site_visit_scheduled', ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(matchId) DO UPDATE SET 
+          status = 'site_visit_scheduled',
+          siteVisitDate = excluded.siteVisitDate,
+          siteVisitLocation = excluded.siteVisitLocation,
+          siteVisitNotes = excluded.siteVisitNotes,
+          assignedAdminId = excluded.assignedAdminId,
+          assignedAdminName = excluded.assignedAdminName,
+          updatedAt = excluded.updatedAt
+      `).run(
+        `coord-${matchId}`,
+        matchId,
+        siteVisitDate,
+        siteVisitLocation || "Participating property site inspection",
+        siteVisitNotes || null,
+        admin.id,
+        admin.name,
+        now,
+        now
+      );
+
+      // Record in coordination timeline
+      db.prepare(`
+        INSERT INTO coordination_timeline (id, matchId, action, notes, performedBy, performedById, createdAt)
+        VALUES (?, ?, 'site_visit_scheduled', ?, ?, ?, ?)
+      `).run(
+        `time-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        matchId,
+        `Site visit scheduled for ${new Date(siteVisitDate).toLocaleDateString("en-IN")}${siteVisitLocation ? ` at ${siteVisitLocation}` : ""}. Inspection notes: ${siteVisitNotes || "Standard due diligence checklist"}`,
+        admin.name,
+        admin.id,
+        now
+      );
+
+      // Audit log
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'exchange_coordination', ?, 'admin_schedule_site_visit', ?, ?, ?)
+      `).run(
+        `log-${Date.now()}`,
+        matchId,
+        JSON.stringify({ siteVisitDate, siteVisitLocation, siteVisitNotes }),
+        admin.name,
+        now
+      );
+
+      // Notify participating owners
+      const participantRows = db.prepare("SELECT DISTINCT ownerId FROM match_participants WHERE matchId = ?").all(matchId) as any[];
+      for (const p of participantRows) {
+        db.prepare(`
+          INSERT INTO notifications (id, userId, role, title, message, type, entityId, link, createdAt)
+          VALUES (?, ?, 'owner', 'Site Visit Inspection Scheduled', ?, 'site_visit_scheduled', ?, '/exchange-progress', ?)
+        `).run(
+          `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          p.ownerId,
+          `A physical site inspection has been scheduled for proposal ${matchId.replace("match-", "EXP-")} on ${new Date(siteVisitDate).toLocaleDateString("en-IN")}.`,
+          matchId,
+          now
+        );
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Site visit scheduled for ${new Date(siteVisitDate).toLocaleDateString("en-IN")}. Participating property owners have been notified.`
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Add coordination note
+adminRouter.post("/exchanges/:id/notes", (req: Request, res: Response) => {
+  try {
+    const matchId = String(req.params.id);
+    const { note } = req.body;
+
+    if (!note || !String(note).trim()) {
+      return res.status(400).json({ success: false, error: "Note content is required." });
+    }
+
+    const now = new Date().toISOString();
+    const admin = req.user!;
+
+    runInTransaction(() => {
+      db.prepare(`
+        INSERT INTO coordination_timeline (id, matchId, action, notes, performedBy, performedById, createdAt)
+        VALUES (?, ?, 'coordination_note', ?, ?, ?, ?)
+      `).run(
+        `time-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        matchId,
+        String(note).trim(),
+        admin.name,
+        admin.id,
+        now
+      );
+
+      db.prepare(`
+        UPDATE exchange_coordinations 
+        SET coordinationNotes = ?, updatedAt = ?
+        WHERE matchId = ?
+      `).run(String(note).trim(), now, matchId);
+    });
+
+    res.json({ success: true, message: "Coordination note recorded successfully." });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// ==========================================
+// 6. Admin Real Notifications
+// ==========================================
+adminRouter.get("/notifications", (req: Request, res: Response) => {
+  try {
+    const notifs = db.prepare(`
+      SELECT * FROM notifications 
+      WHERE role = 'admin' OR userId = ?
+      ORDER BY createdAt DESC LIMIT 50
+    `).all(req.user!.id);
+
+    const unreadCount = (db.prepare(`
+      SELECT COUNT(*) as c FROM notifications 
+      WHERE (role = 'admin' OR userId = ?) AND isRead = 0
+    `).get(req.user!.id) as { c: number }).c;
+
+    res.json({ success: true, count: notifs.length, unreadCount, data: notifs });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+adminRouter.patch("/notifications/:id/read", (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    db.prepare("UPDATE notifications SET isRead = 1 WHERE id = ?").run(id);
+    res.json({ success: true, message: "Notification marked as read." });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+adminRouter.patch("/notifications/read-all", (req: Request, res: Response) => {
+  try {
+    db.prepare("UPDATE notifications SET isRead = 1 WHERE role = 'admin' OR userId = ?").run(req.user!.id);
+    res.json({ success: true, message: "All notifications marked as read." });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });

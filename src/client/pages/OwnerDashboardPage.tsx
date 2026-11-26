@@ -312,9 +312,9 @@ export const OwnerDashboardPage: React.FC = () => {
                       {item.intent === "both" ? "Swap & Sell" : item.intent === "sell" ? "For Sale" : "For Swap"}
                     </span>
                     {item.locked && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 text-amber-800 flex items-center gap-1">
-                        <Lock className="w-3 h-3" />
-                        <span>Locked</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-800 flex items-center gap-1 border border-blue-200">
+                        <Clock className="w-3 h-3 text-blue-600" />
+                        <span>Active Proposal</span>
                       </span>
                     )}
                   </div>

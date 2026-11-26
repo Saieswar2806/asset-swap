@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useUser } from "../context/UserContext.js";
 import { api } from "../api.js";
+import { BackButton } from "../components/BackButton.js";
 import type { Listing } from "../types.js";
 
 export const ProfilePage: React.FC = () => {
@@ -62,6 +63,10 @@ export const ProfilePage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
+      <div>
+        <BackButton defaultPath="/owner/dashboard" label="Back to Dashboard" />
+      </div>
+
       {/* Profile Header Banner */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-xs relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-blue-50 via-teal-50 to-transparent rounded-full -mr-20 -mt-20 pointer-events-none" />

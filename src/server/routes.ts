@@ -673,7 +673,7 @@ apiRouter.post("/workflow/propose", requireAuth, requireRole("owner", "admin"), 
     if (existingMatch && existingMatch.status === "proposed") {
       return res.status(400).json({
         success: false,
-        error: "This match is already proposed and currently open in escrow."
+        error: "An active exchange proposal already exists for this match."
       });
     }
 
@@ -811,7 +811,7 @@ apiRouter.post("/workflow/propose", requireAuth, requireRole("owner", "admin"), 
 
     res.json({
       success: true,
-      message: `Match ${targetMatch.id} proposed successfully. Participating properties locked in escrow.`,
+      message: `Exchange proposal initiated successfully. Participating properties are reserved for participant evaluation.`,
       matchId: targetMatch.id
     });
   } catch (err: unknown) {
@@ -880,12 +880,17 @@ apiRouter.post("/workflow/respond", requireAuth, requireRole("owner", "admin"), 
       `).run(decision, now, matchId, listingId);
 
       if (decision === "declined") {
-        // Decline releases all locks immediately
+        // Decline releases all reservations immediately
         db.prepare("UPDATE matches SET status = 'declined', updatedAt = ? WHERE id = ?").run(now, matchId);
         const unlock = db.prepare("UPDATE listings SET locked = 0 WHERE id = ?");
         for (const id of participantIds) {
           unlock.run(id);
         }
+
+        // Close coordination if exists
+        try {
+          db.prepare("UPDATE exchange_coordinations SET status = 'closed', updatedAt = ? WHERE matchId = ?").run(now, matchId);
+        } catch {}
 
         db.prepare(`
           INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
@@ -894,7 +899,7 @@ apiRouter.post("/workflow/respond", requireAuth, requireRole("owner", "admin"), 
 
         return {
           success: true,
-          message: `Exchange proposal declined by participant ${listingId}. All participant asset locks released.`,
+          message: `Exchange proposal declined. All participating properties have been released from reservation.`,
           matchStatus: "declined"
         };
       }
@@ -906,6 +911,53 @@ apiRouter.post("/workflow/respond", requireAuth, requireRole("owner", "admin"), 
       if (allAccepted) {
         db.prepare("UPDATE matches SET status = 'accepted', updatedAt = ? WHERE id = ?").run(now, matchId);
 
+        // CREATE OR UPDATE COORDINATION RECORD
+        db.prepare(`
+          INSERT INTO exchange_coordinations (id, matchId, status, updatedAt, createdAt)
+          VALUES (?, ?, 'awaiting_coordination', ?, ?)
+          ON CONFLICT(matchId) DO UPDATE SET status = 'awaiting_coordination', updatedAt = excluded.updatedAt
+        `).run(`coord-${matchId}`, matchId, now, now);
+
+        // CREATE NOTIFICATION FOR ADMINS
+        db.prepare(`
+          INSERT INTO notifications (id, role, title, message, type, entityId, link, createdAt)
+          VALUES (?, 'admin', 'Exchange Unanimously Accepted', ?, 'exchange_accepted', ?, '/admin/dashboard', ?)
+        `).run(
+          `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          `All property owners for proposal ${matchId.replace("match-", "EXP-")} have accepted. Administrative coordination and site visit scheduling are now required.`,
+          matchId,
+          now
+        );
+
+        // NOTIFY PARTICIPATING OWNERS
+        for (const pId of participantIds) {
+          const l = getDbListingById(pId);
+          if (l) {
+            db.prepare(`
+              INSERT INTO notifications (id, userId, role, title, message, type, entityId, link, createdAt)
+              VALUES (?, ?, 'owner', 'Exchange Consensus Achieved', ?, 'exchange_accepted', ?, '/proposals', ?)
+            `).run(
+              `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              l.ownerId,
+              `All participants have accepted the exchange proposal for your property ${l.title}. An administrator will initiate coordination and site visit planning.`,
+              matchId,
+              now
+            );
+          }
+        }
+
+        // TIMELINE LOG
+        db.prepare(`
+          INSERT INTO coordination_timeline (id, matchId, action, notes, performedBy, performedById, createdAt)
+          VALUES (?, ?, 'consensus_achieved', 'All participants independently accepted the exchange proposal. Transferred to Admin Coordination queue.', ?, ?, ?)
+        `).run(
+          `time-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          matchId,
+          req.user!.name,
+          req.user!.id,
+          now
+        );
+
         db.prepare(`
           INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
           VALUES (?, 'match', ?, 'match_unanimously_accepted', ?, ?, ?)
@@ -913,7 +965,7 @@ apiRouter.post("/workflow/respond", requireAuth, requireRole("owner", "admin"), 
 
         return {
           success: true,
-          message: "Unanimous acceptance achieved! Match confirmed. Escrow asset locks retained.",
+          message: "Unanimous acceptance achieved! The exchange proposal has advanced to administrative coordination.",
           matchStatus: "accepted"
         };
       }
@@ -925,7 +977,7 @@ apiRouter.post("/workflow/respond", requireAuth, requireRole("owner", "admin"), 
 
       return {
         success: true,
-        message: `Acceptance recorded for ${listingId}. Awaiting remaining participant responses.`,
+        message: `Your response of 'accepted' has been recorded. The proposal remains pending awaiting independent responses from remaining participants.`,
         matchStatus: "proposed"
       };
     });
@@ -1030,16 +1082,33 @@ apiRouter.get("/proposals", requireAuth, (req: Request, res: Response) => {
       }>;
       const participantsRows = db.prepare("SELECT * FROM match_participants WHERE matchId = ?").all(m.id) as any[];
 
+      const coordRow = db.prepare("SELECT * FROM exchange_coordinations WHERE matchId = ?").get(m.id) as any;
+
       let participants: any[] = [];
       if (participantsRows.length > 0) {
         participants = participantsRows.map((p) => {
           const listing = getDbListingById(p.listingId);
           const resp = responsesRows.find((r) => r.listingId === p.listingId);
+          const isCurrentUser = req.user && req.user.id === p.ownerId;
           return {
             ...p,
+            ownerId: isCurrentUser || req.user?.role === "admin" ? p.ownerId : undefined,
+            ownerName: isCurrentUser ? p.ownerName : (p.ownerName || "Verified Participant"),
+            isCurrentUser,
             response: resp ? resp.decision : "pending",
             respondedAt: resp?.respondedAt || null,
-            ownedProperty: listing
+            ownedProperty: listing ? {
+              id: listing.id,
+              title: listing.title,
+              propertyType: listing.propertyType,
+              district: listing.district,
+              locality: listing.locality,
+              area: listing.area,
+              areaUnit: listing.areaUnit,
+              reviewedValue: listing.reviewedValue,
+              imageUrl: listing.imageUrl,
+              images: listing.images
+            } : null
           };
         });
       } else {
@@ -1047,20 +1116,66 @@ apiRouter.get("/proposals", requireAuth, (req: Request, res: Response) => {
         participants = listingIds.map((lid) => {
           const listing = getDbListingById(lid);
           const resp = responsesRows.find((r) => r.listingId === lid);
+          const isCurrentUser = req.user && req.user.id === listing?.ownerId;
           return {
             matchId: m.id,
             listingId: lid,
-            ownerId: listing?.ownerId || "",
-            ownerName: listing?.ownerName || "",
+            ownerId: isCurrentUser || req.user?.role === "admin" ? listing?.ownerId : undefined,
+            ownerName: isCurrentUser ? (listing?.ownerName || "") : "Verified Participant",
+            isCurrentUser,
             response: resp ? resp.decision : "pending",
             respondedAt: resp?.respondedAt || null,
-            ownedProperty: listing
+            ownedProperty: listing ? {
+              id: listing.id,
+              title: listing.title,
+              propertyType: listing.propertyType,
+              district: listing.district,
+              locality: listing.locality,
+              area: listing.area,
+              areaUnit: listing.areaUnit,
+              reviewedValue: listing.reviewedValue,
+              imageUrl: listing.imageUrl,
+              images: listing.images
+            } : null
           };
         });
       }
 
+      // Compute user-centric status & counts
+      const myParticipant = participants.find((p) => p.isCurrentUser);
+      const myDecision = myParticipant ? myParticipant.response : undefined;
+      const acceptedCount = participants.filter((p) => p.response === "accepted").length;
+      const pendingCount = participants.filter((p) => p.response === "pending").length;
+
+      let formalStatus = "Awaiting Participant Responses";
+      let nextStep = "Awaiting Owner Decisions";
+      if (m.status === "proposed") {
+        if (myDecision === "pending") {
+          formalStatus = "Your Decision Pending";
+          nextStep = "Please review and record your consent";
+        } else if (myDecision === "accepted") {
+          formalStatus = `Accepted by You (${acceptedCount}/${participants.length} Consented)`;
+          nextStep = "Awaiting other participating owner's response";
+        } else if (myDecision === "declined") {
+          formalStatus = "Exchange Declined by You";
+          nextStep = "Proposal closed; reservations released";
+        }
+      } else if (m.status === "accepted") {
+        formalStatus = "Exchange Accepted Unanimously";
+        nextStep = coordRow?.status === "site_visit_scheduled"
+          ? `Site Visit Scheduled for ${coordRow.siteVisitDate ? new Date(coordRow.siteVisitDate).toLocaleDateString("en-IN") : "Inspection"}`
+          : "Awaiting Administrative Coordination";
+      } else if (m.status === "declined") {
+        formalStatus = "Exchange Declined";
+        nextStep = "Proposal concluded; properties available";
+      } else if (m.status === "expired") {
+        formalStatus = "Proposal Expired";
+        nextStep = "Proposal period elapsed; properties released";
+      }
+
       return {
         id: m.id,
+        ref: m.id.replace("match-", "EXP-"),
         matchType: m.matchType,
         partyCount: m.partyCount,
         cycle: JSON.parse(m.cycle),
@@ -1069,6 +1184,12 @@ apiRouter.get("/proposals", requireAuth, (req: Request, res: Response) => {
         locationScoreKm: m.locationScoreKm,
         matchScore: m.matchScore,
         status: m.status,
+        formalStatus,
+        nextStep,
+        myDecision,
+        acceptedCount,
+        pendingCount,
+        coordination: coordRow || { status: "awaiting_coordination" },
         explanation: m.explanation,
         reasons: JSON.parse(m.reasons),
         exchangeLegs: JSON.parse(m.exchangeLegs),
@@ -1150,8 +1271,23 @@ apiRouter.get("/activity", requireAuth, (req: Request, res: Response) => {
       params.push(req.user!.name, req.user!.id, ...relevantEntityIds, sanitizedLimit);
     }
 
-    const rows = db.prepare(query).all(...params);
-    res.json({ success: true, count: rows.length, data: rows });
+    const rows = db.prepare(query).all(...params) as any[];
+    const sanitizedRows = rows.map((r) => {
+      if (req.user!.role === "owner" && r.details) {
+        try {
+          const parsed = JSON.parse(r.details);
+          delete parsed.email;
+          delete parsed.phone;
+          delete parsed.password;
+          delete parsed.passwordHash;
+          return { ...r, details: JSON.stringify(parsed) };
+        } catch {
+          return r;
+        }
+      }
+      return r;
+    });
+    res.json({ success: true, count: sanitizedRows.length, data: sanitizedRows });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
+import { BackButton } from "../components/BackButton.js";
 import type { PropertyType, AreaUnit, ListingIntent } from "../types.js";
 import { formatCurrency } from "../components/PropertyCard.js";
 import { getPropertyImages, getPropertyTypeFallback } from "../../propertyImages.js";
@@ -295,6 +296,10 @@ export const RegisterPropertyPage: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto py-6 space-y-6">
+      <div>
+        <BackButton defaultPath="/my-properties" label="Back to My Properties" />
+      </div>
+
       {/* Step Indicator */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
         <div className="flex items-center justify-between">

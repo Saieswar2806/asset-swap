@@ -249,6 +249,53 @@ export function initDatabase(): void {
     );
   `);
 
+  // 10. Exchange Coordination Table (For Administrative Coordination Post-Unanimous Acceptance)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS exchange_coordinations (
+      id TEXT PRIMARY KEY,
+      matchId TEXT UNIQUE NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'awaiting_coordination'
+        CHECK(status IN ('awaiting_coordination', 'coordination_in_progress', 'site_visit_pending', 'site_visit_scheduled', 'legal_review_in_progress', 'completed', 'closed')),
+      siteVisitDate TEXT,
+      siteVisitLocation TEXT,
+      siteVisitNotes TEXT,
+      coordinationNotes TEXT,
+      assignedAdminId TEXT REFERENCES users(id),
+      assignedAdminName TEXT,
+      updatedAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    );
+  `);
+
+  // 11. Coordination Timeline & Notes Log
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS coordination_timeline (
+      id TEXT PRIMARY KEY,
+      matchId TEXT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+      action TEXT NOT NULL,
+      notes TEXT,
+      performedBy TEXT NOT NULL,
+      performedById TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    );
+  `);
+
+  // 12. System Notifications Table (Real event-driven alerts for Admin & Owners)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      userId TEXT,
+      role TEXT,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'info',
+      link TEXT,
+      entityId TEXT,
+      isRead INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT NOT NULL
+    );
+  `);
+
   // Safe schema migrations for listings (intent, askingPrice, saleDescription, bedrooms, bathrooms)
   try {
     const listingCols = db.prepare("PRAGMA table_info(listings)").all() as Array<{ name: string }>;
@@ -316,6 +363,20 @@ export function initDatabase(): void {
     }
     if (!reqCols.some((c) => c.name === "openToCashAdjustment")) {
       db.exec("ALTER TABLE exchange_requirements ADD COLUMN openToCashAdjustment INTEGER DEFAULT 1;");
+    }
+
+    // Backfill accepted matches into exchange_coordinations
+    try {
+      const acceptedMatches = db.prepare("SELECT id, createdAt, updatedAt FROM matches WHERE status = 'accepted'").all() as Array<{ id: string; createdAt: string; updatedAt: string }>;
+      const insertCoord = db.prepare(`
+        INSERT OR IGNORE INTO exchange_coordinations (id, matchId, status, updatedAt, createdAt)
+        VALUES (?, ?, 'awaiting_coordination', ?, ?)
+      `);
+      for (const am of acceptedMatches) {
+        insertCoord.run(`coord-${am.id}`, am.id, am.updatedAt, am.createdAt);
+      }
+    } catch {
+      // non-fatal
     }
   } catch (err) {
     console.warn("Migration warning:", err);

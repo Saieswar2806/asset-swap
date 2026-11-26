@@ -21,6 +21,8 @@ import { BuyPage } from "./pages/BuyPage.js";
 import { SellPage } from "./pages/SellPage.js";
 import { SwapPage } from "./pages/SwapPage.js";
 import { ProfilePage } from "./pages/ProfilePage.js";
+import { ExchangeProgressPage } from "./pages/ExchangeProgressPage.js";
+import { OwnerLayout } from "./components/OwnerLayout.js";
 
 const PublicLayout: React.FC = () => {
   return (
@@ -96,22 +98,34 @@ export const App: React.FC = () => {
               </ProtectedRoute>
             }
           />
+
+          {/* Authenticated Platform Sections with Professional Owner Sidebar Navigation */}
           <Route
-            path="/owner/dashboard"
             element={
-              <ProtectedRoute allowedRoles={["owner"]}>
-                <OwnerDashboardPage />
+              <ProtectedRoute allowedRoles={["owner", "admin"]}>
+                <OwnerLayout />
               </ProtectedRoute>
             }
-          />
+          >
+            <Route path="/owner/dashboard" element={<OwnerDashboardPage />} />
+            <Route path="/my-properties" element={<MyPropertiesPage />} />
+            <Route path="/swap" element={<SwapPage />} />
+            <Route path="/buy" element={<BuyPage />} />
+            <Route path="/sell" element={<SellPage />} />
+            <Route path="/register" element={<RegisterPropertyPage />} />
+            <Route path="/matches" element={<Navigate to="/swap" replace />} />
+            <Route path="/matches/:id" element={<MatchDetailsPage />} />
+            <Route path="/proposals" element={<ProposalsPage />} />
+            <Route path="/exchange-progress" element={<ExchangeProgressPage />} />
+            <Route path="/activity" element={<ActivityPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/admin" element={<AdminReviewPage />} />
+          </Route>
 
-          {/* Standard layout with top Navbar & Footer */}
+          {/* Public Authentication Pages (Redirect to dashboard if already logged in) */}
           <Route element={<PublicLayout />}>
-            {/* Root Entry Point: Unauthenticated -> /login; Authenticated -> Dashboard */}
             <Route path="/" element={<EntryPointRedirect />} />
             <Route path="/dashboard" element={<EntryPointRedirect />} />
-
-            {/* Public Authentication Pages (Redirect to dashboard if already logged in) */}
             <Route
               path="/login"
               element={
@@ -136,92 +150,6 @@ export const App: React.FC = () => {
                 </AuthRedirectRoute>
               }
             />
-
-            {/* Protected Core Platform Sections */}
-            <Route
-              path="/swap"
-              element={
-                <ProtectedRoute allowedRoles={["owner", "admin"]}>
-                  <SwapPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/buy"
-              element={
-                <ProtectedRoute>
-                  <BuyPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/sell"
-              element={
-                <ProtectedRoute allowedRoles={["owner", "admin"]}>
-                  <SellPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/my-properties"
-              element={
-                <ProtectedRoute allowedRoles={["owner", "admin"]}>
-                  <MyPropertiesPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/register"
-              element={
-                <ProtectedRoute allowedRoles={["owner", "admin"]}>
-                  <RegisterPropertyPage />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Protected Swap & Proposal Workflows */}
-            <Route path="/matches" element={<Navigate to="/swap" replace />} />
-            <Route
-              path="/matches/:id"
-              element={
-                <ProtectedRoute>
-                  <MatchDetailsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/proposals"
-              element={
-                <ProtectedRoute allowedRoles={["owner", "admin"]}>
-                  <ProposalsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/activity"
-              element={
-                <ProtectedRoute>
-                  <ActivityPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/profile"
-              element={
-                <ProtectedRoute>
-                  <ProfilePage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <AdminReviewPage />
-                </ProtectedRoute>
-              }
-            />
-
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

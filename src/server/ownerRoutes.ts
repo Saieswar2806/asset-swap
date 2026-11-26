@@ -81,7 +81,55 @@ ownerRouter.get("/listings", (req: Request, res: Response) => {
     `).all(ownerId) as unknown as DbListingRow[];
 
     const listings = rows.map(rowToListing);
-    res.json({ success: true, count: listings.length, data: listings });
+
+    const enrichedListings = listings.map((l) => {
+      let activeProposal: any = null;
+      if (l.locked) {
+        const matchRow = db.prepare(`
+          SELECT m.id, m.status, m.partyCount, m.updatedAt,
+                 r.decision as myDecision, r.respondedAt,
+                 c.status as coordinationStatus
+          FROM match_participants p
+          JOIN matches m ON p.matchId = m.id
+          LEFT JOIN match_responses r ON r.matchId = m.id AND r.listingId = ?
+          LEFT JOIN exchange_coordinations c ON c.matchId = m.id
+          WHERE p.listingId = ? AND m.status IN ('proposed', 'accepted')
+          ORDER BY m.updatedAt DESC LIMIT 1
+        `).get(l.id, l.id) as any;
+
+        if (matchRow) {
+          let statusLabel = "Exchange Proposal Pending";
+          if (matchRow.status === "proposed") {
+            if (matchRow.myDecision === "pending" || !matchRow.myDecision) {
+              statusLabel = "Awaiting Your Response";
+            } else if (matchRow.myDecision === "accepted") {
+              statusLabel = "Your Response: Accepted (Awaiting Other Participants)";
+            } else if (matchRow.myDecision === "declined") {
+              statusLabel = "Exchange Declined";
+            }
+          } else if (matchRow.status === "accepted") {
+            statusLabel = "Exchange Accepted (Coordination in Progress)";
+          }
+
+          activeProposal = {
+            matchId: matchRow.id,
+            matchRef: matchRow.id.replace("match-", "EXP-"),
+            status: matchRow.status,
+            partyCount: matchRow.partyCount,
+            myDecision: matchRow.myDecision || "pending",
+            respondedAt: matchRow.respondedAt,
+            coordinationStatus: matchRow.coordinationStatus || "awaiting_coordination",
+            statusLabel
+          };
+        }
+      }
+      return {
+        ...l,
+        activeProposal
+      };
+    });
+
+    res.json({ success: true, count: enrichedListings.length, data: enrichedListings });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });
@@ -352,6 +400,118 @@ ownerRouter.get("/matches", (req: Request, res: Response) => {
       count: ownerMatches.length,
       data: ownerMatches
     });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// ==========================================
+// 7. Owner Accepted Exchanges & Coordination Progress
+// ==========================================
+ownerRouter.get("/exchanges", (req: Request, res: Response) => {
+  try {
+    const ownerId = req.user!.id;
+    const acceptedMatches = db.prepare(`
+      SELECT DISTINCT m.*, c.status as coordinationStatus, c.siteVisitDate, c.siteVisitLocation, c.siteVisitNotes, c.coordinationNotes
+      FROM matches m
+      JOIN match_participants p ON m.id = p.matchId
+      LEFT JOIN exchange_coordinations c ON m.id = c.matchId
+      WHERE p.ownerId = ? AND m.status = 'accepted'
+      ORDER BY m.updatedAt DESC
+    `).all(ownerId) as any[];
+
+    const enriched = acceptedMatches.map((m) => {
+      const participants = db.prepare("SELECT * FROM match_participants WHERE matchId = ?").all(m.id) as any[];
+      // Privacy: Mask other owners' private details
+      const sanitizedParticipants = participants.map((p) => {
+        const listing = getDbListingById(p.listingId);
+        const isMe = p.ownerId === ownerId;
+        return {
+          listingId: p.listingId,
+          ownerId: isMe ? p.ownerId : undefined,
+          ownerName: isMe ? p.ownerName : (p.ownerName || "Verified Participant"),
+          isCurrentUser: isMe,
+          givesAssetId: p.givesAssetId,
+          givesPropertyType: p.givesPropertyType,
+          givesValue: p.givesValue,
+          receivesAssetId: p.receivesAssetId,
+          receivesPropertyType: p.receivesPropertyType,
+          receivesValue: p.receivesValue,
+          amount: p.amount,
+          action: p.action,
+          cashDifference: p.cashDifference,
+          explanation: p.explanation,
+          property: listing ? {
+            id: listing.id,
+            title: listing.title,
+            locality: listing.locality,
+            district: listing.district,
+            propertyType: listing.propertyType,
+            area: listing.area,
+            areaUnit: listing.areaUnit,
+            reviewedValue: listing.reviewedValue,
+            imageUrl: listing.imageUrl,
+            images: listing.images
+          } : null
+        };
+      });
+
+      return {
+        id: m.id,
+        ref: m.id.replace("match-", "EXP-"),
+        matchType: m.matchType,
+        partyCount: m.partyCount,
+        status: m.status,
+        coordinationStatus: m.coordinationStatus || "awaiting_coordination",
+        siteVisitDate: m.siteVisitDate,
+        siteVisitLocation: m.siteVisitLocation,
+        siteVisitNotes: m.siteVisitNotes,
+        coordinationNotes: m.coordinationNotes,
+        totalAbsoluteBoot: m.totalAbsoluteBoot,
+        explanation: m.explanation,
+        createdAt: m.createdAt,
+        updatedAt: m.updatedAt,
+        participants: sanitizedParticipants
+      };
+    });
+
+    res.json({ success: true, count: enriched.length, data: enriched });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// ==========================================
+// 8. Owner Notifications
+// ==========================================
+ownerRouter.get("/notifications", (req: Request, res: Response) => {
+  try {
+    const ownerId = req.user!.id;
+    const notifs = db.prepare(`
+      SELECT * FROM notifications 
+      WHERE (userId = ? OR (userId IS NULL AND role = 'owner'))
+      ORDER BY createdAt DESC LIMIT 30
+    `).all(ownerId);
+
+    const unreadCount = (db.prepare(`
+      SELECT COUNT(*) as c FROM notifications 
+      WHERE (userId = ? OR (userId IS NULL AND role = 'owner')) AND isRead = 0
+    `).get(ownerId) as { c: number }).c;
+
+    res.json({ success: true, count: notifs.length, unreadCount, data: notifs });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+ownerRouter.patch("/notifications/:id/read", (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    db.prepare("UPDATE notifications SET isRead = 1 WHERE id = ?").run(id);
+    res.json({ success: true, message: "Notification marked as read" });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });

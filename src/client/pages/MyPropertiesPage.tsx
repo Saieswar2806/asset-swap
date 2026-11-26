@@ -5,6 +5,7 @@ import { useUser } from "../context/UserContext.js";
 import { api } from "../api.js";
 import type { Listing, VerificationStatus } from "../types.js";
 import { PropertyCard, formatCurrency } from "../components/PropertyCard.js";
+import { BackButton } from "../components/BackButton.js";
 
 export const MyPropertiesPage: React.FC = () => {
   const navigate = useNavigate();
@@ -65,21 +66,24 @@ export const MyPropertiesPage: React.FC = () => {
   return (
     <div className="space-y-6 pb-12">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">My Registered Properties</h1>
-          <p className="text-xs text-slate-500">
-            Portfolio of registered assets for <strong className="text-slate-800">{currentUser?.name}</strong> (#{currentUser?.id})
-          </p>
-        </div>
+      <div>
+        <BackButton defaultPath="/owner/dashboard" label="Back to Dashboard" className="mb-2" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">My Registered Properties</h1>
+            <p className="text-xs text-slate-500">
+              Portfolio of registered assets for <strong className="text-slate-800">{currentUser?.name}</strong> (#{currentUser?.id})
+            </p>
+          </div>
 
-        <Link
-          to="/register"
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 self-start"
-        >
-          <PlusCircle className="w-4 h-4" />
-          Register Another Asset
-        </Link>
+          <Link
+            to="/register"
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 self-start"
+          >
+            <PlusCircle className="w-4 h-4" />
+            Register Another Asset
+          </Link>
+        </div>
       </div>
 
       {/* Filter Tabs */}
@@ -88,7 +92,7 @@ export const MyPropertiesPage: React.FC = () => {
           { id: "all", label: "All Properties", count: listings.length },
           { id: "reviewed", label: "Approved", count: listings.filter((l) => l.status === "reviewed").length },
           { id: "submitted", label: "Under Review", count: listings.filter((l) => l.status === "submitted" || l.status === "under_review").length },
-          { id: "locked", label: "Locked", count: listings.filter((l) => l.locked).length },
+          { id: "locked", label: "In Active Proposal", count: listings.filter((l) => l.locked).length },
           { id: "rejected", label: "Rejected", count: listings.filter((l) => l.status === "rejected").length }
         ].map((tab) => (
           <button
@@ -148,9 +152,9 @@ export const MyPropertiesPage: React.FC = () => {
                     Find Direct & 3-Way Swaps
                   </button>
                 ) : listing.locked ? (
-                  <span className="flex-1 text-center py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-center gap-1">
-                    <Lock className="w-3.5 h-3.5" />
-                    Participating in Active Proposal
+                  <span className="flex-1 text-center py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-blue-600" />
+                    Exchange Proposal Active
                   </span>
                 ) : (
                   <span className="flex-1 text-center py-1.5 text-xs font-semibold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg">

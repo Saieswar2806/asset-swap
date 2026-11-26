@@ -37,6 +37,7 @@ interface DashboardLayoutProps {
   onTabChange: (tabId: string) => void;
   children: React.ReactNode;
   navItems: NavItem[];
+  headerRight?: React.ReactNode;
 }
 
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
@@ -46,7 +47,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   activeTab,
   onTabChange,
   children,
-  navItems
+  navItems,
+  headerRight
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -183,6 +185,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
+            {headerRight}
             <span className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${currentBadge.bg}`}>
               {currentBadge.label}
             </span>

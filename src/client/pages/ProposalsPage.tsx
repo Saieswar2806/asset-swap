@@ -1,14 +1,30 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeftRight, CheckCircle2, XCircle, Clock, AlertTriangle, ShieldAlert, Sparkles, UserCheck, ArrowRight, RefreshCw, Lock } from "lucide-react";
+import {
+  ArrowLeftRight,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  AlertCircle,
+  Sparkles,
+  ArrowRight,
+  RefreshCw,
+  Building2,
+  Calendar,
+  ShieldCheck,
+  Check,
+  Info
+} from "lucide-react";
 import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import { formatCurrency } from "../components/PropertyCard.js";
+import { BackButton } from "../components/BackButton.js";
 
 interface ProposalParticipant {
   listingId: string;
-  ownerId: string;
+  ownerId?: string;
   ownerName: string;
+  isCurrentUser?: boolean;
   givesAssetId: string;
   givesPropertyType: string;
   givesValue: number;
@@ -26,6 +42,7 @@ interface ProposalParticipant {
 
 interface ProposalItem {
   id: string;
+  ref?: string;
   matchType: string;
   partyCount: number;
   cycle: string[];
@@ -34,6 +51,12 @@ interface ProposalItem {
   locationScoreKm: number;
   matchScore: number;
   status: "proposed" | "accepted" | "declined" | "expired";
+  formalStatus?: string;
+  nextStep?: string;
+  myDecision?: "pending" | "accepted" | "declined";
+  acceptedCount?: number;
+  pendingCount?: number;
+  coordination?: any;
   explanation: string;
   reasons: string[];
   exchangeLegs: any[];
@@ -70,11 +93,11 @@ export const ProposalsPage: React.FC = () => {
       const res = await api.respondToMatch(matchId, listingId, decision);
       let feedbackMsg = res.message;
       if (res.matchStatus === "accepted") {
-        feedbackMsg = "Exchange unanimously accepted by all parties! Escrow asset locks retained.";
+        feedbackMsg = "Exchange proposal unanimously accepted! It has now advanced to Admin Coordination.";
       } else if (res.matchStatus === "declined") {
-        feedbackMsg = "Proposal declined. All participant property locks have been released.";
+        feedbackMsg = "Proposal declined. All participant property reservations have been released.";
       } else if (decision === "accepted") {
-        feedbackMsg = "Your acceptance has been recorded. Waiting for remaining participants to respond.";
+        feedbackMsg = "Your acceptance has been recorded. Awaiting independent responses from remaining participants.";
       }
       setActionFeedback({ id: matchId, message: feedbackMsg, type: "success" });
       await fetchProposals();
@@ -83,60 +106,101 @@ export const ProposalsPage: React.FC = () => {
     }
   };
 
-  const handleExpire = async (matchId: string) => {
-    try {
-      const res = await api.expireMatch(matchId);
-      setActionFeedback({ id: matchId, message: res.message, type: "success" });
-      await fetchProposals();
-    } catch (err: any) {
-      setActionFeedback({ id: matchId, message: err.message, type: "error" });
-    }
-  };
+  const getProposalStatusBadge = (item: ProposalItem) => {
+    const hasPendingUserResponse = item.participants.some(
+      (p) => p.isCurrentUser && p.response === "pending"
+    );
+    const hasAcceptedUserResponse = item.participants.some(
+      (p) => p.isCurrentUser && p.response === "accepted"
+    );
 
-  const statusBadge = (status: ProposalItem["status"]) => {
-    switch (status) {
-      case "proposed":
-        return <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200"><Clock className="w-3.5 h-3.5" /> Proposed (Voting Active)</span>;
-      case "accepted":
-        return <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200"><CheckCircle2 className="w-3.5 h-3.5" /> Consensus Accepted</span>;
-      case "declined":
-        return <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-200"><XCircle className="w-3.5 h-3.5" /> Declined</span>;
-      case "expired":
-        return <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300"><AlertTriangle className="w-3.5 h-3.5" /> Expired</span>;
+    if (item.status === "proposed") {
+      if (hasPendingUserResponse) {
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-300">
+            <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+            <span>Your Response Pending</span>
+          </span>
+        );
+      }
+      if (hasAcceptedUserResponse) {
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
+            <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+            <span>Accepted by You (Awaiting Other Participant)</span>
+          </span>
+        );
+      }
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
+          <Clock className="w-3.5 h-3.5" />
+          <span>Awaiting Responses</span>
+        </span>
+      );
     }
+
+    if (item.status === "accepted") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+          <span>Exchange Accepted</span>
+        </span>
+      );
+    }
+
+    if (item.status === "declined") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-50 text-red-800 border border-red-200">
+          <XCircle className="w-3.5 h-3.5 text-red-600" />
+          <span>Exchange Declined</span>
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300">
+        <Clock className="w-3.5 h-3.5" />
+        <span>Proposal Expired</span>
+      </span>
+    );
   };
 
   return (
     <div className="space-y-6 pb-16">
-      {/* Page Header */}
+      {/* Header & Back Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Swap Proposals</h1>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-              Module 5: Consensus Lifecycle
-            </span>
-          </div>
-          <p className="text-sm text-slate-500 mt-1">
-            Active and archived exchange proposals. All participating properties are strictly locked in escrow until unanimous consent or decline.
+          <BackButton defaultPath="/owner/dashboard" label="Back to Dashboard" className="mb-2" />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Exchange Proposals</h1>
+          <p className="text-xs text-slate-500 mt-1">
+            Review active multi-party exchange proposals, record your independent consent, and track exchange milestones.
           </p>
         </div>
 
-        <button
-          onClick={fetchProposals}
-          className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm self-start"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/exchange-progress"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors shadow-2xs"
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Exchange Progress</span>
+          </Link>
+          <button
+            onClick={fetchProposals}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Tabs */}
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
         {[
           { id: "all", label: "All Proposals" },
-          { id: "proposed", label: "Active Proposals (Voting)" },
-          { id: "accepted", label: "Accepted Swaps" },
+          { id: "proposed", label: "Active Proposals" },
+          { id: "accepted", label: "Accepted Exchanges" },
           { id: "declined", label: "Declined" },
           { id: "expired", label: "Expired" }
         ].map((tab) => (
@@ -145,7 +209,7 @@ export const ProposalsPage: React.FC = () => {
             onClick={() => setStatusFilter(tab.id)}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
               statusFilter === tab.id
-                ? "bg-blue-600 text-white shadow-sm"
+                ? "bg-blue-600 text-white shadow-xs"
                 : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
             }`}
           >
@@ -154,71 +218,93 @@ export const ProposalsPage: React.FC = () => {
         ))}
       </div>
 
+      {/* Feedback Message */}
+      {actionFeedback && (
+        <div
+          className={`p-4 rounded-xl text-xs font-semibold border flex items-center justify-between ${
+            actionFeedback.type === "success"
+              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+              : "bg-red-50 text-red-800 border-red-200"
+          }`}
+        >
+          <span>{actionFeedback.message}</span>
+          <button onClick={() => setActionFeedback(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+      )}
+
       {/* Proposals List */}
       {isLoading ? (
-        <div className="flex flex-col items-center justify-center py-20 bg-white border border-slate-200 rounded-xl shadow-sm">
+        <div className="flex flex-col items-center justify-center py-20 bg-white border border-slate-200 rounded-2xl shadow-xs">
           <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mb-3" />
-          <p className="text-sm font-semibold text-slate-600">Loading swap proposals from database...</p>
+          <p className="text-xs font-semibold text-slate-600">Loading exchange proposals...</p>
         </div>
       ) : proposals.length === 0 ? (
-        <div className="text-center py-16 bg-white border border-slate-200 rounded-xl p-8 shadow-sm">
-          <ArrowLeftRight className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-slate-900">No proposals found</h3>
-          <p className="text-sm text-slate-500 max-w-md mx-auto mt-1 mb-5">
-            No proposals match the selected status filter. Explore available matches and initiate a proposal to begin the exchange consensus workflow.
+        <div className="text-center py-16 bg-white border border-slate-200 rounded-2xl p-8 shadow-xs space-y-3">
+          <ArrowLeftRight className="w-12 h-12 text-slate-300 mx-auto" />
+          <h3 className="text-base font-bold text-slate-900">No Proposals Found</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            You currently have no proposals under the selected filter. Explore verified swap matches and initiate an exchange proposal.
           </p>
-          <Link
-            to="/matches"
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            Explore Matches
-          </Link>
+          <div className="pt-2">
+            <Link
+              to="/swap"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs transition-colors"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Explore Swap Opportunities</span>
+            </Link>
+          </div>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {proposals.map((item) => {
             const hasPendingUserResponse = item.participants.some(
-              (p) => p.ownerId === currentUser?.id && p.response === "pending"
+              (p) => p.isCurrentUser && p.response === "pending"
             );
+            const myParticipant = item.participants.find((p) => p.isCurrentUser);
+            const displayRef = item.ref || item.id.replace("match-", "EXP-");
 
             return (
               <div
                 key={item.id}
-                className={`bg-white border rounded-xl overflow-hidden shadow-sm transition-all ${
-                  item.status === "proposed" ? "border-blue-200 ring-1 ring-blue-100" : "border-slate-200"
+                className={`bg-white border rounded-2xl overflow-hidden shadow-xs transition-all ${
+                  item.status === "proposed" && hasPendingUserResponse
+                    ? "border-amber-300 ring-2 ring-amber-100"
+                    : item.status === "accepted"
+                    ? "border-emerald-200"
+                    : "border-slate-200"
                 }`}
               >
                 {/* Proposal Header */}
                 <div className="bg-slate-50 border-b border-slate-200 p-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    {statusBadge(item.status)}
-                    <span className="font-mono text-xs font-bold text-slate-600">#{item.id}</span>
-                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-200 text-slate-700">
-                      {item.partyCount === 2 ? "Direct 2-Party Swap" : "Circular 3-Way Exchange"}
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded border flex items-center gap-1 ${
-                        item.status === "proposed" || item.status === "accepted"
-                          ? "bg-amber-50 text-amber-800 border-amber-200"
-                          : "bg-slate-100 text-slate-600 border-slate-200"
-                      }`}
-                    >
-                      {item.status === "proposed" || item.status === "accepted"
-                        ? "🔒 In Escrow Lock"
-                        : "🔓 Unlocked"}
-                    </span>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {getProposalStatusBadge(item)}
+                      <span className="font-mono text-xs font-bold text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded">
+                        Ref: {displayRef}
+                      </span>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-200/80 text-slate-700">
+                        {item.partyCount === 2 ? "Direct 2-Party Exchange" : "3-Party Circular Exchange"}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-500 font-medium pt-0.5">
+                      {item.nextStep ? (
+                        <span><strong className="text-slate-700">Next Step:</strong> {item.nextStep}</span>
+                      ) : (
+                        <span>Exchange Proposal between verified property owners</span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-500">
-                      Created: {new Date(item.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                    <span className="text-xs text-slate-400">
+                      Initiated: {new Date(item.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                     </span>
                     <Link
                       to={`/matches/${item.id}`}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-800"
+                      className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
                     >
-                      <span>Visual Flow</span>
+                      <span>Exchange Topology</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>
@@ -226,29 +312,32 @@ export const ProposalsPage: React.FC = () => {
 
                 {/* Proposal Body */}
                 <div className="p-4 sm:p-6 space-y-4">
-                  {/* Action Required Callout Banner if user has pending response */}
+                  {/* Action Banner for Current User */}
                   {hasPendingUserResponse && item.status === "proposed" && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
-                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
-                        <span>Action Required: Your consent is needed to approve this proposed exchange.</span>
+                    <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="text-xs text-amber-900 space-y-0.5">
+                        <div className="font-bold flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
+                          <span>Action Required: Your Independent Decision</span>
+                        </div>
+                        <p className="text-amber-800 text-[11px]">
+                          Please review the exchange terms, property values, and cash adjustment. Both parties must independently consent to proceed to coordination.
+                        </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <button
                           onClick={() => {
-                            const myP = item.participants.find((p) => p.ownerId === currentUser?.id);
-                            if (myP) handleRespond(item.id, myP.listingId, "accepted");
+                            if (myParticipant) handleRespond(item.id, myParticipant.listingId, "accepted");
                           }}
-                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-2xs transition-colors flex items-center gap-1"
+                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Accept Proposal
+                          <Check className="w-3.5 h-3.5" /> Accept Proposal
                         </button>
                         <button
                           onClick={() => {
-                            const myP = item.participants.find((p) => p.ownerId === currentUser?.id);
-                            if (myP) handleRespond(item.id, myP.listingId, "declined");
+                            if (myParticipant) handleRespond(item.id, myParticipant.listingId, "declined");
                           }}
-                          className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-xs shadow-2xs transition-colors flex items-center gap-1"
+                          className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-xs shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
                         >
                           <XCircle className="w-3.5 h-3.5" /> Decline
                         </button>
@@ -256,55 +345,47 @@ export const ProposalsPage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Feedback Banner */}
-                  {actionFeedback && actionFeedback.id === item.id && (
-                    <div
-                      className={`p-3 rounded-lg text-xs font-medium ${
-                        actionFeedback.type === "success"
-                          ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                          : "bg-red-50 text-red-800 border border-red-200"
-                      }`}
-                    >
-                      {actionFeedback.message}
-                    </div>
-                  )}
-
-                  {/* Summary / Explanation */}
-                  <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/80 p-3 rounded-lg border border-slate-100 font-medium">
-                    <span className="font-bold text-slate-800">Exchange Cycle: </span>
+                  {/* Summary Explanation */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-700 font-medium">
+                    <span className="font-bold text-slate-900">Exchange Description: </span>
                     {item.explanation}
-                  </p>
+                  </div>
 
-                  {/* Participants Table / List */}
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="bg-slate-100/70 px-4 py-2 text-[11px] font-bold text-slate-600 uppercase tracking-wider grid grid-cols-12 gap-2">
+                  {/* Participants Table */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-slate-100/70 px-4 py-2.5 text-[11px] font-bold text-slate-600 uppercase tracking-wider grid grid-cols-12 gap-2">
                       <div className="col-span-4 sm:col-span-3">Participant & Property</div>
                       <div className="col-span-3 sm:col-span-3">Giving vs Receiving</div>
-                      <div className="col-span-3 sm:col-span-3">Cash Boot (Adjustment)</div>
-                      <div className="col-span-2 sm:col-span-3 text-right">Consensus Status</div>
+                      <div className="col-span-3 sm:col-span-3">Cash Adjustment (Boot)</div>
+                      <div className="col-span-2 sm:col-span-3 text-right">Consent Status</div>
                     </div>
 
                     <div className="divide-y divide-slate-100">
                       {item.participants.map((p) => {
-                        const isCurrentPersona = p.ownerId === currentUser?.id;
+                        const isMe = !!p.isCurrentUser;
+
                         return (
                           <div
                             key={p.listingId}
                             className={`px-4 py-3 text-xs grid grid-cols-12 gap-2 items-center ${
-                              isCurrentPersona ? "bg-blue-50/40 font-medium" : "bg-white"
+                              isMe ? "bg-blue-50/40 font-medium" : "bg-white"
                             }`}
                           >
                             <div className="col-span-4 sm:col-span-3">
                               <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                                {p.ownerName}
-                                {isCurrentPersona && (
-                                  <span className="text-[10px] bg-blue-600 text-white font-bold px-1.5 py-0.2 rounded">
-                                    You
-                                  </span>
+                                {isMe ? (
+                                  <>
+                                    <span>{p.ownerName}</span>
+                                    <span className="text-[10px] bg-blue-600 text-white font-bold px-1.5 py-0.2 rounded">
+                                      You
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span>{p.ownerName}</span>
                                 )}
                               </div>
                               <div className="text-[11px] text-slate-500 font-mono">
-                                Asset #{p.listingId} ({p.givesPropertyType.replace(/_/g, " ")})
+                                Property {p.listingId} ({p.givesPropertyType.replace(/_/g, " ")})
                               </div>
                             </div>
 
@@ -343,26 +424,26 @@ export const ProposalsPage: React.FC = () => {
                                     : "text-amber-700 bg-amber-50 border-amber-200"
                                 }`}
                               >
-                                {p.response === "accepted" && <CheckCircle2 className="w-3.5 h-3.5" />}
-                                {p.response === "declined" && <XCircle className="w-3.5 h-3.5" />}
-                                {p.response === "pending" && <Clock className="w-3.5 h-3.5" />}
-                                {p.response === "pending" ? "Awaiting Decision" : p.response.toUpperCase()}
+                                {p.response === "accepted" && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
+                                {p.response === "declined" && <XCircle className="w-3 h-3 text-red-600" />}
+                                {p.response === "pending" && <Clock className="w-3 h-3 text-amber-600" />}
+                                <span>{p.response === "pending" ? "Decision Pending" : p.response === "accepted" ? "Accepted" : "Declined"}</span>
                               </span>
 
-                              {/* Interactive Accept / Decline strictly for the current owner */}
-                              {item.status === "proposed" && p.response === "pending" && isCurrentPersona && (
+                              {/* Interactive Accept / Decline for current user if pending */}
+                              {item.status === "proposed" && p.response === "pending" && isMe && (
                                 <div className="flex items-center gap-1 ml-2">
                                   <button
                                     onClick={() => handleRespond(item.id, p.listingId, "accepted")}
-                                    className="p-1 px-2.5 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md shadow-2xs"
-                                    title="Accept proposal for your property"
+                                    className="px-2 py-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-2xs"
+                                    title="Accept proposal"
                                   >
                                     Accept
                                   </button>
                                   <button
                                     onClick={() => handleRespond(item.id, p.listingId, "declined")}
-                                    className="p-1 px-2.5 text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-md shadow-2xs"
-                                    title="Decline proposal and release locks"
+                                    className="px-2 py-1 text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 rounded shadow-2xs"
+                                    title="Decline proposal"
                                   >
                                     Decline
                                   </button>
@@ -375,26 +456,27 @@ export const ProposalsPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Escrow Lock Banner / Actions */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <Lock className="w-3.5 h-3.5 text-amber-600" />
+                  {/* Status Banner */}
+                  <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-blue-600" />
                       <span>
                         {item.status === "proposed"
-                          ? "All participating listings are locked from competing matches."
+                          ? "Properties are reserved while owner consent is pending. Both parties must accept independently."
                           : item.status === "accepted"
-                          ? "Unanimous consensus accepted. Properties remain reserved for legal conveyancing."
-                          : "Proposal closed. All asset locks have been released back to the open pool."}
+                          ? "All participating property owners have accepted. Platform coordination and site visit scheduling are underway."
+                          : "Proposal concluded. Participating properties are released for other exchange matches."}
                       </span>
                     </div>
 
-                    {item.status === "proposed" && (
-                      <button
-                        onClick={() => handleExpire(item.id)}
-                        className="text-xs font-semibold text-slate-500 hover:text-slate-800 underline self-start"
+                    {item.status === "accepted" && (
+                      <Link
+                        to="/exchange-progress"
+                        className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 shrink-0"
                       >
-                        Simulate Expiry Timeout
-                      </button>
+                        <span>View Coordination Milestones</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
                     )}
                   </div>
                 </div>
