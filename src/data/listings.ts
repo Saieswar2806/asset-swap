@@ -30,7 +30,8 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 2000000,
       "maxCashToReceive": 2000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-002",
@@ -58,7 +59,8 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 1500000,
       "maxCashToReceive": 1500000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-003",
@@ -86,7 +88,8 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 1000000,
       "maxCashToReceive": 1000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-004",
@@ -114,7 +117,10 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 2000000,
       "maxCashToReceive": 2000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 15000000,
+    "saleDescription": "Clear title plot site available for mutual swap or outright purchase."
   },
   {
     "id": "ASSET-005",
@@ -142,7 +148,8 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 5000000,
       "maxCashToReceive": 5000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-006",
@@ -170,7 +177,12 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 5000000,
       "maxCashToReceive": 5000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 28000000,
+    "saleDescription": "Clear title independent house available for mutual swap or outright purchase.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-007",
@@ -199,7 +211,8 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 15000000,
       "maxCashToReceive": 15000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-008",
@@ -227,7 +240,12 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 10000000,
       "maxCashToReceive": 10000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 12500000,
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "saleDescription": "Modern 2 BHK apartment in HSR Layout Sector 2. Well-ventilated East facing with modular kitchen and clubhouse access."
   },
   {
     "id": "ASSET-009",
@@ -255,7 +273,8 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 10000000,
       "maxCashToReceive": 10000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-010",
@@ -283,7 +302,12 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 3000000,
       "maxCashToReceive": 3000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 18000000,
+    "saleDescription": "Clear title farmhouse available for mutual swap or outright purchase.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-011",
@@ -311,7 +335,8 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 3000000,
       "maxCashToReceive": 3000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-012",
@@ -339,7 +364,12 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 3000000,
       "maxCashToReceive": 3000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 17000000,
+    "saleDescription": "Clear title apartment available for mutual swap or outright purchase.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-013",
@@ -358,13 +388,14 @@ export const seedListings: Listing[] = [
     "status": "draft",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "plot_site"
-      ],
-      "preferredLocations": [
-        "Bengaluru"
-      ]
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 11000000,
+    "saleDescription": "Direct sale listing for apartment in Whitefield, Bengaluru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-014",
@@ -389,12 +420,17 @@ export const seedListings: Listing[] = [
       "preferredLocations": [
         "Bengaluru"
       ]
-    }
+    },
+    "intent": "both",
+    "askingPrice": 52000000,
+    "bedrooms": 4,
+    "bathrooms": 4,
+    "saleDescription": "Ultra-luxury palatial villa in Sadashivanagar, Bengaluru. Custom Italian marble flooring, landscaped courtyard, lift."
   },
   {
     "id": "ASSET-015",
-    "ownerId": "OWNER-015",
-    "ownerName": "Shashank Joshi",
+    "ownerId": "OWNER-001",
+    "ownerName": "Naveen Hegde",
     "category": "real_estate",
     "propertyType": "commercial",
     "district": "Mysuru",
@@ -413,7 +449,12 @@ export const seedListings: Listing[] = [
       "preferredLocations": [
         "Mysuru"
       ]
-    }
+    },
+    "intent": "sell",
+    "askingPrice": 18500000,
+    "bedrooms": 3,
+    "bathrooms": 2,
+    "saleDescription": "Premium 3 BHK residential apartment in Indiranagar. Prime corner unit, 100% Vastu compliant with 2 covered car parkings."
   },
   {
     "id": "ASSET-016",
@@ -432,13 +473,12 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": true,
     "wants": {
-      "propertyTypes": [
-        "farmhouse"
-      ],
-      "preferredLocations": [
-        "Mandya"
-      ]
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 18000000,
+    "saleDescription": "Direct sale listing for agricultural land in Srirangapatna, Mandya. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-017",
@@ -465,7 +505,8 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 0,
       "maxCashToReceive": 0
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-018",
@@ -492,7 +533,10 @@ export const seedListings: Listing[] = [
       ],
       "maxCashToPay": 50000,
       "maxCashToReceive": 50000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 45000000,
+    "saleDescription": "Well-maintained commercial in Tiptur. Clear title documents verified by legal counsel."
   },
   {
     "id": "ASSET-019",
@@ -511,18 +555,12 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "independent_house"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 1950000,
-      "maxCashToReceive": 2275000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 6500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-020",
@@ -553,7 +591,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 3300000,
       "maxCashToReceive": 3849999.9999999995
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-021",
@@ -583,7 +622,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 19500000,
+    "saleDescription": "Well-maintained independent house in Pandavapura. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-022",
@@ -602,19 +646,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "agricultural_land",
-        "apartment"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Gubbi",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 25000000,
+    "saleDescription": "Direct sale listing for farmhouse in Gubbi, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-023",
@@ -644,12 +683,13 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-024",
-    "ownerId": "OWNER-024",
-    "ownerName": "Siddharth Hedge",
+    "ownerId": "OWNER-002",
+    "ownerName": "Sunil Kulkarni",
     "category": "real_estate",
     "propertyType": "agricultural_land",
     "district": "Bengaluru",
@@ -675,7 +715,11 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "sell",
+    "askingPrice": 32000000,
+    "bathrooms": 2,
+    "saleDescription": "Commercial office suite in Koramangala 5th Block. High rental yield, Grade-A IT fit-outs, 100% power backup."
   },
   {
     "id": "ASSET-025",
@@ -694,18 +738,12 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "farmhouse"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 21500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-026",
@@ -736,7 +774,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-027",
@@ -766,7 +805,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 34500000,
+    "saleDescription": "Well-maintained independent house in Malavalli. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-028",
@@ -785,19 +829,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "plot_site",
-        "independent_house"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Tumakuru Town",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 4500000,
-      "maxCashToReceive": 5250000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 15000000,
+    "saleDescription": "Direct sale listing for farmhouse in Tumakuru Town, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-029",
@@ -827,7 +866,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-030",
@@ -858,7 +898,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 3300000,
       "maxCashToReceive": 3849999.9999999995
-    }
+    },
+    "intent": "both",
+    "askingPrice": 11000000,
+    "saleDescription": "Clear title agricultural land available for mutual swap or outright purchase."
   },
   {
     "id": "ASSET-031",
@@ -877,23 +920,17 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "commercial"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 4650000,
-      "maxCashToReceive": 5425000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 15500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-032",
-    "ownerId": "OWNER-032",
-    "ownerName": "Smitha Gowda",
+    "ownerId": "OWNER-001",
+    "ownerName": "Naveen Hegde",
     "category": "real_estate",
     "propertyType": "apartment",
     "district": "Mysuru",
@@ -919,7 +956,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 22000000,
+    "bedrooms": 4,
+    "bathrooms": 3,
+    "saleDescription": "Serene country farmhouse on Kanakapura Road. Gated community with organic plantation and private swimming pool. Open for direct sale or mutual swap."
   },
   {
     "id": "ASSET-033",
@@ -949,7 +991,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 4950000,
       "maxCashToReceive": 5775000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-034",
@@ -968,19 +1011,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "apartment",
-        "commercial"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Kunigal",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 30000000,
+    "saleDescription": "Direct sale listing for farmhouse in Kunigal, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-035",
@@ -1010,7 +1048,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-036",
@@ -1041,7 +1080,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 26000000,
+    "saleDescription": "Clear title agricultural land available for mutual swap or outright purchase."
   },
   {
     "id": "ASSET-037",
@@ -1060,18 +1102,12 @@ export const seedListings: Listing[] = [
     "status": "under_review",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "agricultural_land"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 2850000,
-      "maxCashToReceive": 3325000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 9500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-038",
@@ -1102,7 +1138,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 3600000,
       "maxCashToReceive": 4200000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-039",
@@ -1132,7 +1169,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-040",
@@ -1151,24 +1189,19 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "independent_house",
-        "agricultural_land"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Tiptur",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 20000000,
+    "saleDescription": "Direct sale listing for farmhouse in Tiptur, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-041",
-    "ownerId": "OWNER-041",
-    "ownerName": "Vijay Kumar",
+    "ownerId": "OWNER-002",
+    "ownerName": "Sunil Kulkarni",
     "category": "real_estate",
     "propertyType": "commercial",
     "district": "Chikkaballapur",
@@ -1193,7 +1226,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 25000000,
+    "bedrooms": 4,
+    "bathrooms": 4,
+    "saleDescription": "Independent luxury villa in Whitefield near ITPL. Private garden terrace, solar water heating, high security enclave. Available for outright purchase or asset swap."
   },
   {
     "id": "ASSET-042",
@@ -1224,7 +1262,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 4200000,
       "maxCashToReceive": 4900000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 14000000,
+    "saleDescription": "Clear title agricultural land available for mutual swap or outright purchase."
   },
   {
     "id": "ASSET-043",
@@ -1243,18 +1284,12 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "apartment"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 24500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-044",
@@ -1285,7 +1320,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 27000000,
+    "saleDescription": "Clear title apartment available for mutual swap or outright purchase.",
+    "bedrooms": 4,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-045",
@@ -1315,7 +1355,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 4050000,
       "maxCashToReceive": 4725000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 13500000,
+    "saleDescription": "Well-maintained independent house in Srirangapatna. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-046",
@@ -1334,19 +1379,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "commercial",
-        "plot_site"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Sira",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 35000000,
+    "saleDescription": "Direct sale listing for farmhouse in Sira, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-047",
@@ -1376,7 +1416,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-048",
@@ -1407,7 +1448,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 29000000,
+    "saleDescription": "Well-maintained agricultural land in Hsr Layout. Clear title documents verified by legal counsel."
   },
   {
     "id": "ASSET-049",
@@ -1426,18 +1470,12 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "independent_house"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 18500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-050",
@@ -1468,7 +1506,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-051",
@@ -1498,12 +1537,17 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 28500000,
+    "saleDescription": "Well-maintained independent house in Pandavapura. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-052",
-    "ownerId": "OWNER-052",
-    "ownerName": "Jagadeesh Murthy",
+    "ownerId": "OWNER-007",
+    "ownerName": "Arun Deshmukh",
     "category": "real_estate",
     "propertyType": "farmhouse",
     "district": "Tumakuru",
@@ -1529,7 +1573,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 16500000,
+    "bedrooms": 3,
+    "bathrooms": 2,
+    "saleDescription": "Heritage style independent house in Jayalakshmipuram, Mysuru. Walking distance from university campus and parks."
   },
   {
     "id": "ASSET-053",
@@ -1559,7 +1608,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-054",
@@ -1590,7 +1640,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 5950000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 17000000,
+    "saleDescription": "Clear title agricultural land available for mutual swap or outright purchase."
   },
   {
     "id": "ASSET-055",
@@ -1609,18 +1662,12 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "farmhouse"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 3750000,
-      "maxCashToReceive": 4375000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 12500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-056",
@@ -1651,7 +1698,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 3900000,
       "maxCashToReceive": 4550000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-057",
@@ -1681,7 +1729,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 43500000,
+    "saleDescription": "Well-maintained independent house in Malavalli. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-058",
@@ -1700,19 +1753,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "plot_site",
-        "independent_house"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Tumakuru Town",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 4500000,
-      "maxCashToReceive": 5250000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 15000000,
+    "saleDescription": "Direct sale listing for farmhouse in Tumakuru Town, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-059",
@@ -1742,7 +1790,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-060",
@@ -1773,7 +1822,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 32000000,
+    "saleDescription": "Well-maintained agricultural land in Koramangala. Clear title documents verified by legal counsel."
   },
   {
     "id": "ASSET-061",
@@ -1792,18 +1844,12 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "commercial"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 1950000,
-      "maxCashToReceive": 2275000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 6500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-062",
@@ -1834,12 +1880,13 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 1800000,
       "maxCashToReceive": 2100000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-063",
-    "ownerId": "OWNER-063",
-    "ownerName": "Shivakumar Naik",
+    "ownerId": "OWNER-008",
+    "ownerName": "Bhavana Shetty",
     "category": "real_estate",
     "propertyType": "independent_house",
     "district": "Mandya",
@@ -1864,7 +1911,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "sell",
+    "askingPrice": 8500000,
+    "bedrooms": 3,
+    "bathrooms": 2,
+    "saleDescription": "Scenic farmhouse in Mandya with coconut grove, drip irrigation, and reliable borewell water supply."
   },
   {
     "id": "ASSET-064",
@@ -1883,19 +1935,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": true,
     "wants": {
-      "propertyTypes": [
-        "apartment",
-        "commercial"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Kunigal",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 30000000,
+    "saleDescription": "Direct sale listing for farmhouse in Kunigal, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-065",
@@ -1925,7 +1972,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-066",
@@ -1956,7 +2004,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 20000000,
+    "saleDescription": "Well-maintained agricultural land in Indiranagar. Clear title documents verified by legal counsel."
   },
   {
     "id": "ASSET-067",
@@ -1986,7 +2037,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-068",
@@ -2017,7 +2069,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-069",
@@ -2047,7 +2100,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 40500000,
+    "saleDescription": "Well-maintained independent house in Maddur. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-070",
@@ -2066,19 +2124,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "independent_house",
-        "agricultural_land"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Tiptur",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 20000000,
+    "saleDescription": "Direct sale listing for farmhouse in Tiptur, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-071",
@@ -2108,7 +2161,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-072",
@@ -2139,7 +2193,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 2400000,
       "maxCashToReceive": 2800000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 8000000,
+    "saleDescription": "Well-maintained agricultural land in Hsr Layout. Clear title documents verified by legal counsel."
   },
   {
     "id": "ASSET-073",
@@ -2158,23 +2215,17 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "apartment"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 4650000,
-      "maxCashToReceive": 5425000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 15500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-074",
-    "ownerId": "OWNER-074",
-    "ownerName": "Anitha Patil",
+    "ownerId": "OWNER-009",
+    "ownerName": "Chandrasekhar Gowda",
     "category": "real_estate",
     "propertyType": "apartment",
     "district": "Mysuru",
@@ -2200,7 +2251,11 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 4200000,
       "maxCashToReceive": 4900000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 11000000,
+    "bathrooms": 1,
+    "saleDescription": "Prime ground floor retail commercial showroom in Central Mysuru. High footfall location with clear title documents."
   },
   {
     "id": "ASSET-075",
@@ -2230,7 +2285,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 22500000,
+    "saleDescription": "Well-maintained independent house in Srirangapatna. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-076",
@@ -2249,19 +2309,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "commercial",
-        "plot_site"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Sira",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 35000000,
+    "saleDescription": "Direct sale listing for farmhouse in Sira, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-077",
@@ -2291,7 +2346,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-078",
@@ -2322,7 +2378,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 23000000,
+    "saleDescription": "Well-maintained agricultural land in Electronic City. Clear title documents verified by legal counsel."
   },
   {
     "id": "ASSET-079",
@@ -2341,18 +2400,12 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "independent_house"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 2850000,
-      "maxCashToReceive": 3325000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 9500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-080",
@@ -2383,7 +2436,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 2100000,
       "maxCashToReceive": 2450000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-081",
@@ -2413,7 +2467,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 37500000,
+    "saleDescription": "Well-maintained independent house in Pandavapura. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-082",
@@ -2432,19 +2491,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "agricultural_land",
-        "apartment"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Gubbi",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 25000000,
+    "saleDescription": "Direct sale listing for farmhouse in Gubbi, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-083",
@@ -2474,7 +2528,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-084",
@@ -2505,12 +2560,15 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 3300000,
       "maxCashToReceive": 3849999.9999999995
-    }
+    },
+    "intent": "both",
+    "askingPrice": 11000000,
+    "saleDescription": "Well-maintained agricultural land in Koramangala. Clear title documents verified by legal counsel."
   },
   {
     "id": "ASSET-085",
-    "ownerId": "OWNER-085",
-    "ownerName": "Prashanth Prasad",
+    "ownerId": "OWNER-014",
+    "ownerName": "Pooja Varma",
     "category": "real_estate",
     "propertyType": "plot_site",
     "district": "Ramanagara",
@@ -2535,7 +2593,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-086",
@@ -2566,7 +2625,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-087",
@@ -2596,7 +2656,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 19500000,
+    "saleDescription": "Well-maintained independent house in Malavalli. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-088",
@@ -2615,19 +2680,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "plot_site",
-        "independent_house"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Tumakuru Town",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 4500000,
-      "maxCashToReceive": 5250000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 15000000,
+    "saleDescription": "Direct sale listing for farmhouse in Tumakuru Town, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-089",
@@ -2657,7 +2717,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-090",
@@ -2688,7 +2749,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 26000000,
+    "saleDescription": "Clear title agricultural land available for mutual swap or outright purchase."
   },
   {
     "id": "ASSET-091",
@@ -2707,18 +2771,12 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "commercial"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 18500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-092",
@@ -2749,7 +2807,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 4500000,
       "maxCashToReceive": 5250000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 15000000,
+    "saleDescription": "Clear title apartment available for mutual swap or outright purchase.",
+    "bedrooms": 4,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-093",
@@ -2779,7 +2842,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 34500000,
+    "saleDescription": "Well-maintained independent house in Mandya Town. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-094",
@@ -2798,19 +2866,14 @@ export const seedListings: Listing[] = [
     "status": "under_review",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "apartment",
-        "commercial"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Kunigal",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 30000000,
+    "saleDescription": "Direct sale listing for farmhouse in Kunigal, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-095",
@@ -2840,7 +2903,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-096",
@@ -2871,7 +2935,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 4200000,
       "maxCashToReceive": 4900000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 14000000,
+    "saleDescription": "Well-maintained agricultural land in Hsr Layout. Clear title documents verified by legal counsel."
   },
   {
     "id": "ASSET-097",
@@ -2901,7 +2968,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 3750000,
       "maxCashToReceive": 4375000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-098",
@@ -2932,7 +3000,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 2400000,
       "maxCashToReceive": 2800000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-099",
@@ -2962,7 +3031,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 4950000,
       "maxCashToReceive": 5775000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-100",
@@ -2981,19 +3051,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "independent_house",
-        "agricultural_land"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Tiptur",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 20000000,
+    "saleDescription": "Direct sale listing for farmhouse in Tiptur, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-101",
@@ -3023,7 +3088,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-102",
@@ -3054,7 +3120,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 29000000,
+    "saleDescription": "Well-maintained agricultural land in Electronic City. Clear title documents verified by legal counsel."
   },
   {
     "id": "ASSET-103",
@@ -3073,18 +3142,12 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "apartment"
-      ],
-      "preferredLocations": [
-        "Ramanagara",
-        "Harohalli",
-        "Mysuru"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 1950000,
-      "maxCashToReceive": 2275000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 6500000,
+    "saleDescription": "Direct sale listing for plot site in Harohalli, Ramanagara. Sub-registrar valuation verified."
   },
   {
     "id": "ASSET-104",
@@ -3115,7 +3178,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-105",
@@ -3145,7 +3209,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 31500000,
+    "saleDescription": "Well-maintained independent house in Srirangapatna. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-106",
@@ -3164,19 +3233,14 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "commercial",
-        "plot_site"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Sira",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 35000000,
+    "saleDescription": "Direct sale listing for farmhouse in Sira, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-107",
@@ -3206,7 +3270,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-108",
@@ -3237,7 +3302,10 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 5950000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 17000000,
+    "saleDescription": "Well-maintained agricultural land in Koramangala. Clear title documents verified by legal counsel."
   },
   {
     "id": "ASSET-109",
@@ -3267,7 +3335,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 5000000,
       "maxCashToReceive": 6000000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-110",
@@ -3298,7 +3367,8 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 4800000,
       "maxCashToReceive": 5600000
-    }
+    },
+    "intent": "swap"
   },
   {
     "id": "ASSET-111",
@@ -3328,7 +3398,12 @@ export const seedListings: Listing[] = [
       "maxDistanceKm": 60,
       "maxCashToPay": 4050000,
       "maxCashToReceive": 4725000
-    }
+    },
+    "intent": "both",
+    "askingPrice": 13500000,
+    "saleDescription": "Well-maintained independent house in Pandavapura. Clear title documents verified by legal counsel.",
+    "bedrooms": 2,
+    "bathrooms": 2
   },
   {
     "id": "ASSET-112",
@@ -3347,18 +3422,13 @@ export const seedListings: Listing[] = [
     "status": "reviewed",
     "locked": false,
     "wants": {
-      "propertyTypes": [
-        "agricultural_land",
-        "apartment"
-      ],
-      "preferredLocations": [
-        "Tumakuru",
-        "Gubbi",
-        "Chikkaballapur"
-      ],
-      "maxDistanceKm": 60,
-      "maxCashToPay": 5000000,
-      "maxCashToReceive": 6000000
-    }
+      "propertyTypes": [],
+      "preferredLocations": []
+    },
+    "intent": "sell",
+    "askingPrice": 25000000,
+    "saleDescription": "Direct sale listing for farmhouse in Gubbi, Tumakuru. Sub-registrar valuation verified.",
+    "bedrooms": 3,
+    "bathrooms": 2
   }
 ];

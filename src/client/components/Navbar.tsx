@@ -24,7 +24,9 @@ export const Navbar: React.FC = () => {
         { to: "/buy", label: "Buy", icon: ShoppingBag },
         { to: "/sell", label: "Sell", icon: Tag },
         { to: "/my-properties", label: "My Properties", icon: Building2 },
-        { to: "/proposals", label: "Proposals", icon: Sparkles }
+        { to: "/proposals", label: "Proposals", icon: Sparkles },
+        { to: "/activity", label: "Activity", icon: Activity },
+        { to: "/profile", label: "Profile", icon: UserCircle2 }
       ]
     : isBroker
     ? [
@@ -96,7 +98,7 @@ export const Navbar: React.FC = () => {
                   </Link>
                 )}
 
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
+                <Link to="/profile" className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1 transition-colors">
                   <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-[10px] uppercase">
                     {currentUser?.name ? currentUser.name.slice(0, 2) : "U"}
                   </div>
@@ -104,7 +106,7 @@ export const Navbar: React.FC = () => {
                     <span className="font-bold text-slate-900 block max-w-[120px] truncate">{currentUser?.name}</span>
                     <span className="text-[9px] font-bold uppercase text-slate-400">{currentUser?.role}</span>
                   </div>
-                </div>
+                </Link>
 
                 <button
                   onClick={handleLogout}

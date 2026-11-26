@@ -178,6 +178,11 @@ export const api = {
     return res.data || [];
   },
 
+  getAdminBrokerById: async (id: string): Promise<User & { auditLogs?: any[] }> => {
+    const res = await fetchJson<ApiResponse<User & { auditLogs?: any[] }>>(`/admin/brokers/${id}`);
+    return res.data!;
+  },
+
   reviewBrokerApplication: async (id: string, action: "approve" | "reject", rejectionReason?: string): Promise<string> => {
     const res = await fetchJson<{ success: boolean; message: string }>(`/admin/brokers/${id}/review`, {
       method: "POST",
@@ -468,5 +473,19 @@ export const api = {
       body: JSON.stringify({ status })
     });
     return { message: res.message || "Status updated", data: res.data };
+  },
+
+  markListingSold: async (id: string): Promise<{ message: string }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/sell/listings/${id}/sold`, {
+      method: "PATCH"
+    });
+    return { message: res.message || "Property marked as sold" };
+  },
+
+  deactivateSaleListing: async (id: string): Promise<{ message: string }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/sell/listings/${id}/deactivate`, {
+      method: "PATCH"
+    });
+    return { message: res.message || "Property sale listing deactivated" };
   }
 };

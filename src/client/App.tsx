@@ -20,6 +20,7 @@ import { OwnerDashboardPage } from "./pages/OwnerDashboardPage.js";
 import { BuyPage } from "./pages/BuyPage.js";
 import { SellPage } from "./pages/SellPage.js";
 import { SwapPage } from "./pages/SwapPage.js";
+import { ProfilePage } from "./pages/ProfilePage.js";
 
 const PublicLayout: React.FC = () => {
   return (
@@ -201,6 +202,14 @@ export const App: React.FC = () => {
               element={
                 <ProtectedRoute>
                   <ActivityPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <ProfilePage />
                 </ProtectedRoute>
               }
             />

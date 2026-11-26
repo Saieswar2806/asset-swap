@@ -20,6 +20,7 @@ import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import type { PropertyType, AreaUnit, ListingIntent } from "../types.js";
 import { formatCurrency } from "../components/PropertyCard.js";
+import { getPropertyImages, getPropertyTypeFallback } from "../../propertyImages.js";
 
 const DISTRICTS = [
   "Bengaluru",
@@ -658,6 +659,48 @@ export const RegisterPropertyPage: React.FC = () => {
                 placeholder="Key highlights, road width, facing direction, physical condition..."
                 className="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
+            </div>
+
+            {/* Property Photo Gallery & Imagery */}
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              <label className="block text-xs font-bold text-slate-700 uppercase">
+                Property Photos & Imagery (Curated by Type)
+              </label>
+              <p className="text-[11px] text-slate-500">
+                A category-relevant photo gallery matching <strong className="capitalize">{ownedData.propertyType.replace(/_/g, " ")}</strong> is automatically selected. You may choose a featured thumbnail or provide a custom image URL.
+              </p>
+              <div className="grid grid-cols-4 gap-2 pt-1">
+                {getPropertyImages(ownedData.propertyType, 0).map((imgUrl, idx) => {
+                  const isSelected = ownedData.imageUrl === imgUrl || (!ownedData.imageUrl && idx === 0);
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => updateOwned("imageUrl", imgUrl)}
+                      className={`relative h-20 rounded-xl overflow-hidden cursor-pointer border-2 transition-all ${
+                        isSelected
+                          ? "border-blue-600 ring-2 ring-blue-500/30 scale-102"
+                          : "border-transparent opacity-70 hover:opacity-100"
+                      }`}
+                    >
+                      <img src={imgUrl} alt="Sample" className="w-full h-full object-cover" />
+                      {isSelected && (
+                        <div className="absolute top-1 right-1 bg-blue-600 text-white rounded-full p-0.5 shadow-xs">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="pt-2">
+                <input
+                  type="url"
+                  value={ownedData.imageUrl}
+                  onChange={(e) => updateOwned("imageUrl", e.target.value)}
+                  placeholder="Or paste a custom image URL (optional)"
+                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
             </div>
           </div>
         </div>

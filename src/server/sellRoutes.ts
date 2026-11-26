@@ -118,7 +118,7 @@ sellRouter.post("/enable", (req: Request, res: Response) => {
 sellRouter.patch("/listings/:id", (req: Request, res: Response) => {
   try {
     const id = String(req.params.id);
-    const { askingPrice, saleDescription, intent } = req.body;
+    const { askingPrice, saleDescription, intent, isSold } = req.body;
     const ownerId = req.user!.id;
 
     const listing = getDbListingById(id);
@@ -151,6 +151,11 @@ sellRouter.patch("/listings/:id", (req: Request, res: Response) => {
       params.push(intent);
     }
 
+    if (isSold !== undefined) {
+      updates.push("isSold = ?");
+      params.push(isSold ? 1 : 0);
+    }
+
     params.push(id);
 
     db.prepare(`UPDATE listings SET ${updates.join(", ")} WHERE id = ?`).run(...params);
@@ -158,6 +163,68 @@ sellRouter.patch("/listings/:id", (req: Request, res: Response) => {
     res.json({
       success: true,
       message: "Sale listing terms updated successfully."
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Mark property as Sold
+sellRouter.patch("/listings/:id/sold", (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const ownerId = req.user!.id;
+
+    const listing = getDbListingById(id);
+    if (!listing) {
+      return res.status(404).json({ success: false, error: "Property listing not found." });
+    }
+
+    if (listing.ownerId !== ownerId && req.user!.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        error: "You are not authorized to mark this property as sold."
+      });
+    }
+
+    const now = new Date().toISOString();
+    db.prepare("UPDATE listings SET isSold = 1, updatedAt = ? WHERE id = ?").run(now, id);
+
+    res.json({
+      success: true,
+      message: "Property successfully marked as sold."
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Deactivate Sale Listing (revert to Swap-only)
+sellRouter.patch("/listings/:id/deactivate", (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const ownerId = req.user!.id;
+
+    const listing = getDbListingById(id);
+    if (!listing) {
+      return res.status(404).json({ success: false, error: "Property listing not found." });
+    }
+
+    if (listing.ownerId !== ownerId && req.user!.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        error: "You are not authorized to deactivate this sale listing."
+      });
+    }
+
+    const now = new Date().toISOString();
+    db.prepare("UPDATE listings SET intent = 'swap', updatedAt = ? WHERE id = ?").run(now, id);
+
+    res.json({
+      success: true,
+      message: "Property sale listing deactivated and reverted to swap-only."
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

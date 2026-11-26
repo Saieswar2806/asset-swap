@@ -80,7 +80,11 @@ export interface Listing {
   saleDescription?: string;
   bedrooms?: number;
   bathrooms?: number;
+  isSold?: boolean;
+  sellerName?: string;
+  sellerId?: string;
   imageUrl?: string;
+  images?: string[];
   wants: OwnerRequirement;
   metadata?: Record<string, unknown>;
 }

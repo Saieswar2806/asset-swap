@@ -21,6 +21,7 @@ import { DashboardLayout, type NavItem } from "../components/DashboardLayout.js"
 import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import { formatCurrency } from "../components/PropertyCard.js";
+import { PropertyImageGallery } from "../components/PropertyImageGallery.js";
 import type { Listing } from "../types.js";
 
 export const BrokerDashboardPage: React.FC = () => {
@@ -374,6 +375,14 @@ export const BrokerDashboardPage: React.FC = () => {
               </div>
               <button onClick={() => setSelectedListing(null)} className="text-slate-400 hover:text-slate-600">✕</button>
             </div>
+
+            {/* Property Image Gallery */}
+            <PropertyImageGallery
+              images={selectedListing.images || (selectedListing.metadata?.images as string[]) || (selectedListing.imageUrl ? [selectedListing.imageUrl] : [])}
+              propertyType={selectedListing.propertyType}
+              title={selectedListing.title || selectedListing.locality}
+              aspectRatio="wide"
+            />
 
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
               <div className="font-bold text-slate-900">{selectedListing.metadata?.title as string || selectedListing.locality}</div>

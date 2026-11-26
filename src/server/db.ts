@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { seedListings } from "../data/listings.js";
 import { hashPassword } from "./password.js";
+import { getPropertyImages, getPropertyThumbnail, getPropertyTypeFallback } from "../propertyImages.js";
 import type { Listing, PropertyType, AreaUnit, VerificationStatus, Match, Boot, ExchangeLeg } from "../types.js";
 
 const require = createRequire(import.meta.url);
@@ -128,6 +129,7 @@ export function initDatabase(): void {
       conversionStatus TEXT,
       description TEXT,
       imageUrl TEXT,
+      images TEXT,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
@@ -264,6 +266,44 @@ export function initDatabase(): void {
     }
     if (!listingCols.some((c) => c.name === "bathrooms")) {
       db.exec("ALTER TABLE listings ADD COLUMN bathrooms INTEGER;");
+    }
+    if (!listingCols.some((c) => c.name === "images")) {
+      db.exec("ALTER TABLE listings ADD COLUMN images TEXT;");
+    }
+    if (!listingCols.some((c) => c.name === "isSold")) {
+      db.exec("ALTER TABLE listings ADD COLUMN isSold INTEGER NOT NULL DEFAULT 0;");
+    }
+
+    // Backfill images for any listings where images is NULL
+    try {
+      const unmigratedListings = db.prepare("SELECT id, propertyType, imageUrl FROM listings WHERE images IS NULL").all() as Array<{ id: string; propertyType: PropertyType; imageUrl: string | null }>;
+      if (unmigratedListings.length > 0) {
+        const updateImagesStmt = db.prepare("UPDATE listings SET images = ?, imageUrl = ? WHERE id = ?");
+        let mIdx = 0;
+        for (const item of unmigratedListings) {
+          mIdx++;
+          const numId = parseInt(item.id.replace(/\D/g, ""), 10) || mIdx;
+          const imgs = getPropertyImages(item.propertyType, numId, null, item.imageUrl);
+          updateImagesStmt.run(JSON.stringify(imgs), imgs[0], item.id);
+        }
+      }
+    } catch {
+      // non-fatal
+    }
+
+    // Clean up residual test listings that may pollute the demo dataset
+    try {
+      db.exec(`
+        DELETE FROM buyer_inquiries WHERE listingId IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) > 112 OR title LIKE '%Coffee Estate%' OR title LIKE '%Commercial Complex%' OR title LIKE '%Substandard Farmland%' OR title LIKE '%Owner A%' OR title LIKE '%Audit Review Target%');
+        DELETE FROM match_responses WHERE listingId IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) > 112 OR title LIKE '%Coffee Estate%' OR title LIKE '%Commercial Complex%' OR title LIKE '%Substandard Farmland%' OR title LIKE '%Owner A%' OR title LIKE '%Audit Review Target%');
+        DELETE FROM match_participants WHERE listingId IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) > 112 OR title LIKE '%Coffee Estate%' OR title LIKE '%Commercial Complex%' OR title LIKE '%Substandard Farmland%' OR title LIKE '%Owner A%' OR title LIKE '%Audit Review Target%');
+        DELETE FROM property_reviews WHERE listingId IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) > 112 OR title LIKE '%Coffee Estate%' OR title LIKE '%Commercial Complex%' OR title LIKE '%Substandard Farmland%' OR title LIKE '%Owner A%' OR title LIKE '%Audit Review Target%');
+        DELETE FROM exchange_requirements WHERE listingId IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) > 112 OR title LIKE '%Coffee Estate%' OR title LIKE '%Commercial Complex%' OR title LIKE '%Substandard Farmland%' OR title LIKE '%Owner A%' OR title LIKE '%Audit Review Target%');
+        DELETE FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) > 112 OR title LIKE '%Coffee Estate%' OR title LIKE '%Commercial Complex%' OR title LIKE '%Substandard Farmland%' OR title LIKE '%Owner A%' OR title LIKE '%Audit Review Target%';
+        DELETE FROM users WHERE id = 'OWNER-NEW';
+      `);
+    } catch {
+      // non-fatal
     }
 
     // Safe schema migrations for exchange_requirements (minValue, maxValue, openToCashAdjustment)
@@ -457,7 +497,7 @@ export function ensureDemoAuthUsers(): void {
     now
   );
 
-  // 4. Pending Broker Application (rajesh.patel@broker.local / Broker@123)
+  // 4. Pending Broker Application 1 (rajesh.patel@broker.local / Broker@123)
   insertUser.run(
     "broker-003",
     "Rajesh Patel",
@@ -475,7 +515,61 @@ export function ensureDemoAuthUsers(): void {
     now
   );
 
-  // 5. Featured Property Owners (Owner@123)
+  // 5. Pending Broker Application 2 (ananya.sharma@broker.local / Broker@123)
+  insertUser.run(
+    "broker-004",
+    "Ananya Sharma",
+    "ananya.sharma@broker.local",
+    hashPassword("Broker@123"),
+    "broker",
+    "pending",
+    "+91 98450 55667",
+    "Sharma & Associates Realty",
+    "KAR-REV-2022-7712",
+    "Bengaluru Urban, Bengaluru Rural",
+    6,
+    null,
+    now,
+    now
+  );
+
+  // 6. Rejected Broker Application (vikram.hegde@broker.local / Broker@123)
+  insertUser.run(
+    "broker-005",
+    "Vikramaditya Hegde",
+    "vikram.hegde@broker.local",
+    hashPassword("Broker@123"),
+    "broker",
+    "rejected",
+    "+91 98450 66778",
+    "Malnad Valuation Bureau",
+    "KAR-REV-2019-3301",
+    "Shivamogga, Hassan, Chikkamagaluru",
+    9,
+    "Professional RERA license expired; awaiting current renewal certificate from Karnataka RERA authority.",
+    now,
+    now
+  );
+
+  // 7. Pending Broker Application 3 (mohammed.farooq@broker.local / Broker@123)
+  insertUser.run(
+    "broker-006",
+    "Mohammed Farooq",
+    "mohammed.farooq@broker.local",
+    hashPassword("Broker@123"),
+    "broker",
+    "pending",
+    "+91 98450 77889",
+    "Deccan Property Appraisals",
+    "KAR-REV-2021-5540",
+    "Ramanagara, Kanakapura, Mandya",
+    7,
+    null,
+    now,
+    now
+  );
+
+  // 8. Featured Property Owners (Owner@123)
   const demoOwners = [
     { id: "OWNER-001", name: "Naveen Hegde", email: "naveen.hegde@owner.local", phone: "+91 98450 00001" },
     { id: "OWNER-002", name: "Sunil Kulkarni", email: "sunil.kulkarni@owner.local", phone: "+91 98450 00002" },
@@ -504,6 +598,35 @@ export function ensureDemoAuthUsers(): void {
       now
     );
   }
+
+  // Ensure all 112 unique demo owners exist with active status and Owner@123 password
+  for (const item of seedListings) {
+    if (item.ownerId) {
+      const email = item.ownerId === "OWNER-001" ? "naveen.hegde@owner.local" :
+                    item.ownerId === "OWNER-002" ? "sunil.kulkarni@owner.local" :
+                    item.ownerId === "OWNER-007" ? "arun.deshmukh@owner.local" :
+                    item.ownerId === "OWNER-008" ? "bhavana.shetty@owner.local" :
+                    item.ownerId === "OWNER-009" ? "chandrasekhar.gowda@owner.local" :
+                    item.ownerId === "OWNER-014" ? "pooja.varma@owner.local" :
+                    `${item.ownerName.toLowerCase().replace(/[^a-z]/g, "")}@owner.local`;
+      insertUser.run(
+        item.ownerId,
+        item.ownerName,
+        email,
+        ownerHash,
+        "owner",
+        "active",
+        `+91 98450 ${item.ownerId.replace(/\D/g, "").padStart(5, "0")}`,
+        null,
+        null,
+        null,
+        null,
+        null,
+        now,
+        now
+      );
+    }
+  }
 }
 
 export function seedDatabase(): void {
@@ -526,14 +649,18 @@ export function seedDatabase(): void {
       id, ownerId, ownerName, title, category, propertyType,
       district, taluk, locality, pincode, latitude, longitude,
       area, areaUnit, ownerDeclaredValue, reviewedValue, status,
-      rejectionReason, locked, khataType, surveyNumber, conversionStatus,
-      description, imageUrl, createdAt, updatedAt
+      rejectionReason, locked, intent, askingPrice, saleDescription,
+      bedrooms, bathrooms, isSold,
+      khataType, surveyNumber, conversionStatus,
+      description, imageUrl, images, createdAt, updatedAt
     ) VALUES (
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?,
-      ?, ?, ?, ?
+      ?, ?, ?,
+      ?, ?, ?,
+      ?, ?, ?, ?, ?
     )
   `);
 
@@ -562,7 +689,8 @@ export function seedDatabase(): void {
     );
 
     const title = generatePropertyTitle(item);
-    const imageUrl = getPropertyImage(item.propertyType, idx);
+    const gallery = getPropertyImages(item.propertyType, idx);
+    const imageUrl = gallery[0];
 
     const khataType = item.propertyType === "agricultural_land" ? "Pahani / RTC" : "A-Khata (BBMP/Local Authority)";
     const surveyNumber = `Sy. No. ${100 + (idx % 150)}/${(idx % 4) + 1}`;
@@ -591,11 +719,18 @@ export function seedDatabase(): void {
       item.status,
       rejectionReason,
       item.locked ? 1 : 0,
+      item.intent ?? "swap",
+      item.askingPrice ?? null,
+      item.saleDescription ?? null,
+      item.bedrooms ?? null,
+      item.bathrooms ?? null,
+      0, // isSold
       khataType,
       surveyNumber,
       conversionStatus,
       description,
       imageUrl,
+      JSON.stringify(gallery),
       now,
       now
     );
@@ -644,11 +779,13 @@ export interface DbListingRow {
   saleDescription?: string | null;
   bedrooms?: number | null;
   bathrooms?: number | null;
+  isSold?: number | null;
   khataType: string | null;
   surveyNumber: string | null;
   conversionStatus: string | null;
   description: string | null;
   imageUrl: string | null;
+  images?: string | null;
   createdAt: string;
   updatedAt: string;
   // joined from exchange_requirements
@@ -684,10 +821,25 @@ export function rowToListing(row: DbListingRow): Listing {
   const effectiveIntent = (row.intent as "swap" | "sell" | "both") || "swap";
   const askingPrice = row.askingPrice ?? (row.reviewedValue ?? row.ownerDeclaredValue);
 
+  let galleryImages: string[] = [];
+  if (row.images) {
+    try {
+      galleryImages = JSON.parse(row.images);
+    } catch {
+      galleryImages = [];
+    }
+  }
+  if (!Array.isArray(galleryImages) || galleryImages.length === 0) {
+    const numId = parseInt(row.id.replace(/\D/g, ""), 10) || 0;
+    galleryImages = getPropertyImages(row.propertyType, numId, null, row.imageUrl);
+  }
+  const primaryThumb = galleryImages[0] || row.imageUrl || getPropertyTypeFallback(row.propertyType);
+
   return {
     id: row.id,
     ownerId: row.ownerId,
     ownerName: row.ownerName,
+    title: row.title,
     category: "real_estate",
     propertyType: row.propertyType,
     district: row.district,
@@ -705,6 +857,9 @@ export function rowToListing(row: DbListingRow): Listing {
     saleDescription: row.saleDescription ?? undefined,
     bedrooms: row.bedrooms ?? undefined,
     bathrooms: row.bathrooms ?? undefined,
+    isSold: row.isSold === 1,
+    imageUrl: primaryThumb,
+    images: galleryImages,
     wants: {
       propertyTypes,
       preferredLocations,
@@ -722,7 +877,8 @@ export function rowToListing(row: DbListingRow): Listing {
       surveyNumber: row.surveyNumber,
       conversionStatus: row.conversionStatus,
       description: row.description,
-      imageUrl: row.imageUrl,
+      imageUrl: primaryThumb,
+      images: galleryImages,
       rejectionReason: row.rejectionReason,
       taluk: row.taluk,
       pincode: row.pincode,

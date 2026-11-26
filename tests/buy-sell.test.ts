@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app } from "../src/server/index.js";
 import { db } from "../src/server/db.js";
@@ -263,5 +263,154 @@ describe("Asset Swap Buy, Sell & Intent Expansion Tests", () => {
       expect(res.status).toBe(403);
       expect(res.body.success).toBe(false);
     });
+
+    it("Owner can mark a sale property as Sold, which removes it from Buy marketplace", async () => {
+      // Find an active sale property belonging to Owner 1
+      const owner1Sales = await request(app)
+        .get("/api/sell/listings")
+        .set("Authorization", `Bearer ${owner1Token}`);
+
+      const target = owner1Sales.body.data.find((l: any) => !l.isSold);
+      expect(target).toBeDefined();
+
+      // Owner 2 cannot mark Owner 1 property as sold
+      const unauthRes = await request(app)
+        .patch(`/api/sell/listings/${target.id}/sold`)
+        .set("Authorization", `Bearer ${owner2Token}`);
+      expect(unauthRes.status).toBe(403);
+
+      // Owner 1 marks their own property as sold
+      const soldRes = await request(app)
+        .patch(`/api/sell/listings/${target.id}/sold`)
+        .set("Authorization", `Bearer ${owner1Token}`);
+      expect(soldRes.status).toBe(200);
+      expect(soldRes.body.success).toBe(true);
+
+      // Verify it is excluded from public Buy marketplace
+      const buyRes = await request(app)
+        .get("/api/buy/listings")
+        .set("Authorization", `Bearer ${owner2Token}`);
+      const stillInBuy = buyRes.body.data.some((l: any) => l.id === target.id);
+      expect(stillInBuy).toBe(false);
+
+      // Revert isSold for subsequent tests
+      db.prepare("UPDATE listings SET isSold = 0 WHERE id = ?").run(target.id);
+    });
+
+    it("Owner can deactivate a sale listing, reverting it to Swap-only", async () => {
+      // Enable sale on ASSET-001 temporarily
+      await request(app)
+        .post("/api/sell/enable")
+        .set("Authorization", `Bearer ${owner1Token}`)
+        .send({
+          listingId: "ASSET-001",
+          askingPrice: 20000000,
+          intent: "both"
+        });
+
+      // Deactivate sale listing
+      const deactRes = await request(app)
+        .patch("/api/sell/listings/ASSET-001/deactivate")
+        .set("Authorization", `Bearer ${owner1Token}`);
+      expect(deactRes.status).toBe(200);
+      expect(deactRes.body.success).toBe(true);
+
+      const dbListing = db.prepare("SELECT intent FROM listings WHERE id = 'ASSET-001'").get() as any;
+      expect(dbListing.intent).toBe("swap");
+
+      // Verify it does not appear in Buy marketplace
+      const buyRes = await request(app)
+        .get("/api/buy/listings")
+        .set("Authorization", `Bearer ${owner2Token}`);
+      expect(buyRes.body.data.some((l: any) => l.id === "ASSET-001")).toBe(false);
+    });
+  });
+
+  describe("6. Strict Intent Separation & Ownership Integrity", () => {
+    it("Swap-only properties never appear in Buy marketplace", async () => {
+      const buyRes = await request(app)
+        .get("/api/buy/listings")
+        .set("Authorization", `Bearer ${owner1Token}`);
+
+      expect(buyRes.status).toBe(200);
+      for (const item of buyRes.body.data) {
+        expect(item.intent).not.toBe("swap");
+        expect(["sell", "both"]).toContain(item.intent);
+      }
+    });
+
+    it("Sell-only properties do not participate in swap matching", async () => {
+      // ASSET-015 is sell-only
+      const matchRes = await request(app)
+        .get("/api/matches")
+        .set("Authorization", `Bearer ${owner1Token}`);
+
+      expect(matchRes.status).toBe(200);
+      for (const match of matchRes.body.data || []) {
+        expect(match.listingIds).not.toContain("ASSET-015");
+        expect(match.cycle).not.toContain("ASSET-015");
+      }
+    });
+
+    it("Ownership is distributed across distinct demo owners and never dominated by a single owner", async () => {
+      const rows = db.prepare("SELECT ownerId, ownerName, COUNT(*) as c FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) <= 112 GROUP BY ownerId, ownerName").all() as any[];
+      expect(rows.length).toBeGreaterThan(50); // More than 50 distinct property owners
+      for (const r of rows) {
+        expect(r.c).toBeLessThanOrEqual(5); // No single owner has more than 5 properties
+      }
+
+      // Verify specific featured demo owners have their intended properties
+      const naveenListings = db.prepare("SELECT id, intent FROM listings WHERE ownerId = 'OWNER-001' AND CAST(SUBSTR(id, 7) AS INTEGER) <= 112").all() as any[];
+      expect(naveenListings.length).toBe(3);
+      expect(naveenListings.some((l) => l.intent === "swap")).toBe(true);
+      expect(naveenListings.some((l) => l.intent === "sell")).toBe(true);
+      expect(naveenListings.some((l) => l.intent === "both")).toBe(true);
+
+      const sunilListings = db.prepare("SELECT id, intent FROM listings WHERE ownerId = 'OWNER-002' AND CAST(SUBSTR(id, 7) AS INTEGER) <= 112").all() as any[];
+      expect(sunilListings.length).toBe(3);
+      expect(sunilListings.some((l) => l.intent === "swap")).toBe(true);
+      expect(sunilListings.some((l) => l.intent === "sell")).toBe(true);
+      expect(sunilListings.some((l) => l.intent === "both")).toBe(true);
+    });
+
+    it("Backend enforces authenticated session owner and rejects forged client ownerId", async () => {
+      const maliciousPayload = {
+        title: "Malicious Property Forging Other Owner",
+        propertyType: "apartment",
+        district: "Bengaluru",
+        locality: "Indiranagar",
+        area: 1500,
+        areaUnit: "sq_ft",
+        ownerDeclaredValue: 12000000,
+        ownerId: "OWNER-002", // Malicious attempt to forge Sunil's ID while logged in as Naveen
+        ownerName: "Sunil Kulkarni"
+      };
+
+      const res = await request(app)
+        .post("/api/owner/listings")
+        .set("Authorization", `Bearer ${owner1Token}`) // Logged in as Naveen
+        .send(maliciousPayload);
+
+      expect([200, 201]).toContain(res.status);
+      const createdId = res.body.data.id;
+
+      // In database, the listing MUST be owned by Naveen (the authenticated user), NOT Sunil!
+      const dbRecord = db.prepare("SELECT ownerId, ownerName FROM listings WHERE id = ?").get(createdId) as any;
+      expect(dbRecord.ownerId).toBe("OWNER-001");
+      expect(dbRecord.ownerName).toBe("Naveen Hegde");
+    });
+  });
+
+  afterAll(() => {
+    // Clean up any test-created listings so asset_swap.db is not polluted
+    try {
+      db.prepare(`
+        DELETE FROM buyer_inquiries WHERE listingId NOT IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) <= 112);
+        DELETE FROM exchange_requirements WHERE listingId NOT IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) <= 112);
+        DELETE FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) > 112 OR title LIKE '%Malicious%';
+      `).run();
+    } catch {
+      // Ignored
+    }
   });
 });

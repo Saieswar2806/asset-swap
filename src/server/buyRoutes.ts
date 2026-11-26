@@ -19,11 +19,12 @@ buyRouter.get("/listings", (req: Request, res: Response) => {
       SELECT id, ownerId, ownerName, title, category, propertyType,
              district, taluk, locality, pincode, area, areaUnit,
              ownerDeclaredValue, reviewedValue, askingPrice, saleDescription,
-             bedrooms, bathrooms, description, imageUrl, status, intent,
-             createdAt, updatedAt
+             bedrooms, bathrooms, description, imageUrl, images, status, intent,
+             isSold, createdAt, updatedAt
       FROM listings
       WHERE status = 'reviewed'
         AND intent IN ('sell', 'both')
+        AND (isSold IS NULL OR isSold = 0)
     `;
     const params: unknown[] = [];
 
@@ -68,28 +69,36 @@ buyRouter.get("/listings", (req: Request, res: Response) => {
     const rows = db.prepare(query).all(...params) as any[];
 
     // Sanitize output for buyers (do not expose private owner phone/email or internal notes)
-    const listings = rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      propertyType: r.propertyType,
-      district: r.district,
-      taluk: r.taluk,
-      locality: r.locality,
-      pincode: r.pincode,
-      area: r.area,
-      areaUnit: r.areaUnit,
-      askingPrice: r.askingPrice ?? (r.reviewedValue ?? r.ownerDeclaredValue),
-      reviewedValue: r.reviewedValue,
-      bedrooms: r.bedrooms,
-      bathrooms: r.bathrooms,
-      description: r.description,
-      saleDescription: r.saleDescription,
-      imageUrl: r.imageUrl,
-      intent: r.intent,
-      sellerName: r.ownerName,
-      sellerId: r.ownerId,
-      createdAt: r.createdAt
-    }));
+    const listings = rows.map((r) => {
+      let gallery: string[] = [];
+      if (r.images) {
+        try { gallery = JSON.parse(r.images); } catch { gallery = []; }
+      }
+      return {
+        id: r.id,
+        title: r.title,
+        propertyType: r.propertyType,
+        district: r.district,
+        taluk: r.taluk,
+        locality: r.locality,
+        pincode: r.pincode,
+        area: r.area,
+        areaUnit: r.areaUnit,
+        askingPrice: r.askingPrice ?? (r.reviewedValue ?? r.ownerDeclaredValue),
+        reviewedValue: r.reviewedValue,
+        bedrooms: r.bedrooms,
+        bathrooms: r.bathrooms,
+        description: r.description,
+        saleDescription: r.saleDescription,
+        imageUrl: r.imageUrl,
+        images: gallery.length > 0 ? gallery : (r.imageUrl ? [r.imageUrl] : []),
+        intent: r.intent,
+        isSold: Boolean(r.isSold),
+        sellerName: r.ownerName,
+        sellerId: r.ownerId,
+        createdAt: r.createdAt
+      };
+    });
 
     res.json({
       success: true,
@@ -117,7 +126,7 @@ buyRouter.get("/listings/:id", (req: Request, res: Response) => {
     const isAuthorizedStaff = req.user?.role === "admin" || req.user?.role === "broker";
     const isOwner = req.user?.id === listing.ownerId;
 
-    if (listing.status !== "reviewed" || (listing.intent !== "sell" && listing.intent !== "both")) {
+    if (listing.status !== "reviewed" || (listing.intent !== "sell" && listing.intent !== "both") || listing.isSold) {
       if (!isAuthorizedStaff && !isOwner) {
         return res.status(404).json({ success: false, error: "Property is not available for purchase." });
       }
@@ -143,8 +152,10 @@ buyRouter.get("/listings/:id", (req: Request, res: Response) => {
       conversionStatus: listing.metadata?.conversionStatus,
       description: listing.metadata?.description,
       saleDescription: listing.saleDescription,
-      imageUrl: listing.metadata?.imageUrl,
+      imageUrl: listing.metadata?.imageUrl || listing.imageUrl,
+      images: listing.images || (listing.imageUrl ? [listing.imageUrl] : []),
       intent: listing.intent || "both",
+      isSold: listing.isSold || false,
       sellerName: listing.ownerName,
       sellerId: listing.ownerId,
       createdAt: listing.metadata?.createdAt

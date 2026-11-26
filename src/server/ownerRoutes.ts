@@ -4,6 +4,7 @@ import { findMatches } from "../matcher.js";
 import { MatchWorkflow } from "../workflow.js";
 import { resolveCoordinates } from "../location.js";
 import { requireAuth, requireRole } from "./auth.js";
+import { getPropertyImages, getPropertyTypeFallback } from "../propertyImages.js";
 import type { Listing } from "../types.js";
 
 export const ownerRouter = Router();
@@ -106,8 +107,8 @@ ownerRouter.post("/listings", (req: Request, res: Response) => {
     const id = `ASSET-${String(countRow.count + 1).padStart(3, "0")}`;
     const now = new Date().toISOString();
 
-    const fallbackImage = "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&auto=format&fit=crop&q=60";
-    const imageUrl = body.imageUrl || fallbackImage;
+    const gallery = getPropertyImages(body.propertyType, countRow.count + 1, body.images, body.imageUrl);
+    const imageUrl = gallery[0] || getPropertyTypeFallback(body.propertyType);
 
     // Resolve coordinates
     const tempListing: Listing = {
@@ -143,7 +144,7 @@ ownerRouter.post("/listings", (req: Request, res: Response) => {
         rejectionReason, locked, intent, askingPrice, saleDescription,
         bedrooms, bathrooms,
         khataType, surveyNumber, conversionStatus,
-        description, imageUrl, createdAt, updatedAt
+        description, imageUrl, images, createdAt, updatedAt
       ) VALUES (
         ?, ?, ?, ?, 'real_estate', ?,
         ?, ?, ?, ?, ?, ?,
@@ -151,7 +152,7 @@ ownerRouter.post("/listings", (req: Request, res: Response) => {
         NULL, 0, ?, ?, ?,
         ?, ?,
         ?, ?, ?,
-        ?, ?, ?, ?
+        ?, ?, ?, ?, ?
       )
     `).run(
       id,
@@ -178,6 +179,7 @@ ownerRouter.post("/listings", (req: Request, res: Response) => {
       body.conversionStatus || "DC Converted",
       body.description || null,
       imageUrl,
+      JSON.stringify(gallery),
       now,
       now
     );

@@ -150,6 +150,40 @@ adminRouter.get("/brokers", (req: Request, res: Response) => {
   }
 });
 
+adminRouter.get("/brokers/:id", (req: Request, res: Response) => {
+  try {
+    const brokerId = String(req.params.id);
+    const broker = db.prepare(`
+      SELECT id, name, email, role, status, phone, agency, licenseNumber,
+             jurisdiction, experienceYears, rejectionReason, createdAt, updatedAt
+      FROM users
+      WHERE id = ? AND role = 'broker'
+    `).get(brokerId) as Record<string, unknown> | undefined;
+
+    if (!broker) {
+      return res.status(404).json({ success: false, error: "Broker application not found." });
+    }
+
+    const logs = db.prepare(`
+      SELECT id, action, details, performedBy, timestamp
+      FROM audit_logs
+      WHERE entityId = ?
+      ORDER BY timestamp DESC
+    `).all(brokerId);
+
+    res.json({
+      success: true,
+      data: {
+        ...broker,
+        auditLogs: logs
+      }
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
 adminRouter.post("/brokers/:id/review", (req: Request, res: Response) => {
   try {
     const brokerId = String(req.params.id);
@@ -172,6 +206,11 @@ adminRouter.post("/brokers/:id/review", (req: Request, res: Response) => {
       UPDATE users SET status = ?, rejectionReason = ?, updatedAt = ?
       WHERE id = ?
     `).run(newStatus, reason, now, brokerId);
+
+    // If rejected, terminate any active sessions for this broker
+    if (action === "reject") {
+      db.prepare("DELETE FROM sessions WHERE userId = ?").run(brokerId);
+    }
 
     // Audit log
     db.prepare(`

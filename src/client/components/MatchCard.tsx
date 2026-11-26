@@ -14,6 +14,7 @@ import {
 import type { Match } from "../types.js";
 import { formatCurrency } from "./PropertyCard.js";
 import { ProposalConfirmModal } from "./ProposalConfirmModal.js";
+import { getPropertyThumbnail, getPropertyTypeFallback } from "../../propertyImages.js";
 
 interface MatchCardProps {
   match: Match;
@@ -101,28 +102,47 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, onPropose, proposin
             </span>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {match.exchangeLegs.map((leg, index) => (
-                <div
-                  key={index}
-                  className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex flex-col justify-between gap-2"
-                >
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-slate-900">{leg.fromOwnerName}</span>
-                    <span className="text-[10px] text-slate-400 font-mono">Asset #{leg.fromListingId}</span>
-                  </div>
+              {match.exchangeLegs.map((leg, index) => {
+                const num = parseInt(leg.fromListingId?.replace(/\D/g, "") || "0", 10) || index;
+                const thumb = getPropertyThumbnail(leg.transferredPropertyType, num);
+                return (
+                  <div
+                    key={index}
+                    className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex flex-col justify-between gap-2.5 hover:bg-slate-100/60 transition-colors"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-900 truncate">{leg.fromOwnerName}</span>
+                      <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-1">Asset #{leg.fromListingId}</span>
+                    </div>
 
-                  <div className="flex items-center gap-1.5 text-xs text-blue-800 bg-white p-2 rounded-lg border border-slate-200 font-medium">
-                    <span className="capitalize font-bold">{leg.transferredPropertyType?.replace(/_/g, " ")}</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                    <span className="text-slate-600 text-[11px]">Given to {leg.toOwnerName}</span>
-                  </div>
+                    <div className="flex items-center gap-2.5 bg-white p-2 rounded-xl border border-slate-200 text-xs font-medium">
+                      <img
+                        src={thumb}
+                        alt={leg.transferredPropertyType}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = getPropertyTypeFallback(leg.transferredPropertyType);
+                        }}
+                        className="w-12 h-12 rounded-lg object-cover shrink-0 border border-slate-100"
+                        loading="lazy"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="capitalize font-bold text-slate-900 truncate">
+                          {leg.transferredPropertyType?.replace(/_/g, " ")}
+                        </div>
+                        <div className="flex items-center gap-1 text-slate-500 text-[11px] mt-0.5">
+                          <ArrowRight className="w-3 h-3 text-blue-500 shrink-0" />
+                          <span className="truncate">Transfers to <strong className="text-slate-700">{leg.toOwnerName}</strong></span>
+                        </div>
+                      </div>
+                    </div>
 
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
-                    <span>Broker Valuation:</span>
-                    <strong className="text-slate-800">{formatCurrency(leg.assetValue)}</strong>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+                      <span>Valuation:</span>
+                      <strong className="text-slate-800">{formatCurrency(leg.assetValue)}</strong>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

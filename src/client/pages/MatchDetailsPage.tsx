@@ -22,6 +22,7 @@ import { FlowVisualizer } from "../components/FlowVisualizer.js";
 import { formatCurrency } from "../components/PropertyCard.js";
 import { useUser } from "../context/UserContext.js";
 import { ProposalConfirmModal } from "../components/ProposalConfirmModal.js";
+import { getPropertyThumbnail, getPropertyTypeFallback } from "../../propertyImages.js";
 
 interface DetailedParticipant {
   listingId: string;
@@ -268,9 +269,27 @@ export const MatchDetailsPage: React.FC = () => {
                       </span>
                     )}
                   </h4>
-                  <p className="text-xs text-slate-600 capitalize">
-                    Giving: {boot.givesPropertyType.replace(/_/g, " ")} ({formatCurrency(boot.givesValue)})
-                  </p>
+
+                  <div className="flex items-center gap-2.5 my-2 p-2 bg-white rounded-lg border border-slate-200/80">
+                    <img
+                      src={getPropertyThumbnail(boot.givesPropertyType, parseInt(boot.listingId.replace(/\D/g, "") || "0", 10))}
+                      alt={boot.givesPropertyType}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = getPropertyTypeFallback(boot.givesPropertyType);
+                      }}
+                      className="w-12 h-12 rounded-lg object-cover border border-slate-100 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Asset #{boot.listingId}</span>
+                      <span className="text-xs font-bold text-slate-800 capitalize truncate block">
+                        {boot.givesPropertyType.replace(/_/g, " ")}
+                      </span>
+                      <span className="text-[11px] font-semibold text-emerald-700">
+                        {formatCurrency(boot.givesValue)}
+                      </span>
+                    </div>
+                  </div>
+
                   <p className="text-xs text-blue-700 font-semibold mt-1">
                     Cash Boot: {boot.action === "pays" ? `+ Pays ${formatCurrency(boot.cashDifference)}` : boot.action === "receives" ? `- Receives ${formatCurrency(boot.cashDifference)}` : "₹0 Settled"}
                   </p>

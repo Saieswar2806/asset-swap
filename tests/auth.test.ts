@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterAll } from "vitest";
 import request from "supertest";
 import { app } from "../src/server/index.js";
+import { db } from "../src/server/db.js";
 import { extractAuthResult } from "../src/client/api.js";
 
 describe("Asset Swap Real Authentication & RBAC Test Suite", () => {
@@ -324,5 +325,13 @@ describe("Asset Swap Real Authentication & RBAC Test Suite", () => {
       expect(() => extractAuthResult({ success: true, data: { token: "only-token" } })).toThrow("Response missing valid user profile");
       expect(() => extractAuthResult({ success: true, user: { name: "Missing ID and Role" } })).toThrow("Response missing valid user profile");
     });
+  });
+
+  afterAll(() => {
+    try {
+      db.prepare("DELETE FROM users WHERE email LIKE 'applicant_broker_%' OR email LIKE 'pending_broker_%'").run();
+    } catch {
+      // ignore
+    }
   });
 });

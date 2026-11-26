@@ -17,6 +17,7 @@ import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import type { Listing } from "../types.js";
 import { formatCurrency } from "../components/PropertyCard.js";
+import { PropertyImageGallery } from "../components/PropertyImageGallery.js";
 
 export const AdminReviewPage: React.FC = () => {
   const { currentUser } = useUser();
@@ -262,6 +263,14 @@ export const AdminReviewPage: React.FC = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Property Image Gallery */}
+            <PropertyImageGallery
+              images={selectedListing.images || (selectedListing.metadata?.images as string[]) || (selectedListing.imageUrl ? [selectedListing.imageUrl] : [])}
+              propertyType={selectedListing.propertyType}
+              title={selectedListing.title || selectedListing.locality}
+              aspectRatio="wide"
+            />
 
             {/* Property Overview */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs space-y-1.5">

@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach, beforeAll } from "vitest";
+import { describe, expect, it, afterEach, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { app } from "../src/server/index.js";
 import { db } from "../src/server/db.js";
@@ -364,5 +364,17 @@ describe("Asset Swap Full-Stack API Integration Tests", () => {
     expect(actRes.status).toBe(200);
     expect(actRes.body.success).toBe(true);
     expect(actRes.body.data.length).toBeGreaterThan(0);
+  });
+
+  afterAll(() => {
+    try {
+      db.prepare(`
+        DELETE FROM property_reviews WHERE listingId NOT IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) <= 112);
+        DELETE FROM exchange_requirements WHERE listingId NOT IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) <= 112);
+        DELETE FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) > 112;
+      `).run();
+    } catch {
+      // Ignored
+    }
   });
 });

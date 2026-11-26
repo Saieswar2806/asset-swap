@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterEach } from "vitest";
+import { describe, expect, it, beforeAll, afterEach, afterAll } from "vitest";
 import request from "supertest";
 import { app } from "../src/server/index.js";
 import { db } from "../src/server/db.js";
@@ -600,5 +600,17 @@ describe("Asset Swap API Security Hardening & RBAC Audit Tests", () => {
         expect(isOwn).toBe(true);
       }
     });
+  });
+
+  afterAll(() => {
+    try {
+      db.prepare(`
+        DELETE FROM property_reviews WHERE listingId NOT IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) <= 112);
+        DELETE FROM exchange_requirements WHERE listingId NOT IN (SELECT id FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) <= 112);
+        DELETE FROM listings WHERE CAST(SUBSTR(id, 7) AS INTEGER) > 112;
+      `).run();
+    } catch {
+      // Ignored
+    }
   });
 });

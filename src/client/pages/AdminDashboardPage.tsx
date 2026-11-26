@@ -26,6 +26,7 @@ import { DashboardLayout, type NavItem } from "../components/DashboardLayout.js"
 import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import { PropertyCard, formatCurrency } from "../components/PropertyCard.js";
+import { BrokerDetailModal } from "../components/BrokerDetailModal.js";
 import type { Listing, User } from "../types.js";
 
 export const AdminDashboardPage: React.FC = () => {
@@ -55,6 +56,9 @@ export const AdminDashboardPage: React.FC = () => {
 
   // Action feedback
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // Broker Application Details Modal
+  const [selectedBrokerId, setSelectedBrokerId] = useState<string | null>(null);
 
   // Rejection modal
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
@@ -250,10 +254,23 @@ export const AdminDashboardPage: React.FC = () => {
                     {brokerList.filter((b) => b.status === "pending").slice(0, 3).map((b) => (
                       <div key={b.id} className="py-2.5 flex items-center justify-between text-xs">
                         <div>
-                          <div className="font-bold text-slate-900">{b.name}</div>
-                          <div className="text-[11px] text-slate-500">{b.agency || "Independent"} • {b.licenseNumber}</div>
+                          <button
+                            onClick={() => setSelectedBrokerId(b.id)}
+                            className="font-bold text-slate-900 hover:text-blue-600 transition-colors text-left"
+                          >
+                            {b.name}
+                          </button>
+                          <div className="text-[11px] text-slate-500">{b.agency || "Independent"} • {b.licenseNumber || "License Not provided"}</div>
                         </div>
                         <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setSelectedBrokerId(b.id)}
+                            className="px-2.5 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg font-bold text-[11px] flex items-center gap-1 transition-colors"
+                            title="View Complete Application Details"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Details</span>
+                          </button>
                           <button
                             onClick={() => handleApproveBroker(b.id)}
                             className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-bold text-[11px] hover:bg-emerald-700 shadow-xs"
@@ -450,9 +467,16 @@ export const AdminDashboardPage: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {brokerList.map((b) => (
-                    <tr key={b.id} className="hover:bg-slate-50/60">
+                    <tr key={b.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-4 py-3">
-                        <div className="font-bold text-slate-900">{b.name}</div>
+                        <button
+                          onClick={() => setSelectedBrokerId(b.id)}
+                          className="font-bold text-slate-900 hover:text-blue-600 transition-colors text-left flex items-center gap-1.5 group"
+                          title="Click to view complete application details"
+                        >
+                          <span>{b.name}</span>
+                          <Eye className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 opacity-60 group-hover:opacity-100 transition-opacity" />
+                        </button>
                         <div className="text-[11px] text-slate-500">{b.agency || "Independent"} • {b.email}</div>
                       </td>
                       <td className="px-4 py-3">
@@ -476,26 +500,36 @@ export const AdminDashboardPage: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {b.status === "pending" ? (
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() => handleApproveBroker(b.id)}
-                              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-xs"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => handleOpenRejectBroker(b.id)}
-                              className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs shadow-xs"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 text-xs">
-                            {b.status === "active" ? "Valuation Privileges Active" : "Rejected"}
-                          </span>
-                        )}
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setSelectedBrokerId(b.id)}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs shadow-xs flex items-center gap-1 transition-colors"
+                            title="View Complete Application Details"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Details</span>
+                          </button>
+                          {b.status === "pending" ? (
+                            <>
+                              <button
+                                onClick={() => handleApproveBroker(b.id)}
+                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-xs"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleOpenRejectBroker(b.id)}
+                                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs shadow-xs"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-slate-400 text-[11px] ml-1">
+                              {b.status === "active" ? "Active" : "Rejected"}
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -631,6 +665,12 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Broker Application Details Modal */}
+      <BrokerDetailModal
+        brokerId={selectedBrokerId}
+        onClose={() => setSelectedBrokerId(null)}
+        onStatusUpdated={loadData}
+      />
     </DashboardLayout>
   );
 };
