@@ -214,12 +214,55 @@ export const api = {
     reviewedValue?: number;
     internalNotes?: string;
     rejectionReason?: string;
+    selectedComparableIds?: string[];
   }): Promise<{ message: string; data: Listing }> => {
     const res = await fetchJson<ApiResponse<Listing> & { message: string }>(`/broker/listings/${id}/review`, {
       method: "POST",
       body: JSON.stringify(payload)
     });
     return { message: res.message || "Review updated", data: res.data! };
+  },
+
+  getComparableProperties: async (id: string): Promise<any> => {
+    return await fetchJson<any>(`/broker/listings/${id}/comparables`);
+  },
+
+  registerOwnerProperty: async (payload: {
+    owner: {
+      name: string;
+      phone: string;
+      email?: string;
+      preferredContactMethod?: "phone" | "email" | "whatsapp";
+      address?: string;
+    };
+    consent: {
+      status: "pending_consent" | "consent_provided" | "verified_by_owner";
+      documentationRef?: string;
+      notes?: string;
+    };
+    property: Record<string, any>;
+    intent: "swap" | "sell";
+    swapPreferences?: Record<string, any>;
+    saleDetails?: Record<string, any>;
+  }): Promise<{ message: string; data: Listing }> => {
+    const res = await fetchJson<ApiResponse<Listing> & { message: string }>("/broker/register-owner-property", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    return { message: res.message || "Property registered successfully", data: res.data! };
+  },
+
+  getMyBrokerSubmissions: async (): Promise<Listing[]> => {
+    const res = await fetchJson<ApiResponse<Listing[]>>("/broker/my-submissions");
+    return res.data || [];
+  },
+
+  updateMyBrokerSubmission: async (id: string, payload: Record<string, any>): Promise<{ message: string; data: Listing }> => {
+    const res = await fetchJson<ApiResponse<Listing> & { message: string }>(`/broker/my-submissions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    return { message: res.message || "Submission updated", data: res.data! };
   },
 
   // ==========================================

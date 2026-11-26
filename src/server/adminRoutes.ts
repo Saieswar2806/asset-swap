@@ -365,6 +365,31 @@ adminRouter.post("/listings/:id/review", (req: Request, res: Response) => {
   }
 });
 
+adminRouter.patch("/listings/:id/consent", (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const { consentStatus, consentDocumentationRef } = req.body;
+    if (!["pending_consent", "consent_provided", "verified_by_owner"].includes(consentStatus)) {
+      return res.status(400).json({ success: false, error: "Invalid consentStatus value." });
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE listings SET
+        consentStatus = ?,
+        consentDocumentationRef = COALESCE(?, consentDocumentationRef),
+        updatedAt = ?
+      WHERE id = ?
+    `).run(consentStatus, consentDocumentationRef || null, now, id);
+
+    const updated = getDbListingById(id);
+    res.json({ success: true, message: "Consent status updated by admin.", data: updated });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
 // ==========================================
 // 5. Accepted Exchanges Coordination Management
 // ==========================================

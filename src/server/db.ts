@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { seedListings } from "../data/listings.js";
 import { hashPassword } from "./password.js";
 import { getPropertyImages, getPropertyThumbnail, getPropertyTypeFallback } from "../propertyImages.js";
-import type { Listing, PropertyType, AreaUnit, VerificationStatus, Match, Boot, ExchangeLeg } from "../types.js";
+import type { Listing, PropertyType, AreaUnit, VerificationStatus, ConsentStatus, Match, Boot, ExchangeLeg } from "../types.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite");
@@ -319,6 +319,32 @@ export function initDatabase(): void {
     }
     if (!listingCols.some((c) => c.name === "isSold")) {
       db.exec("ALTER TABLE listings ADD COLUMN isSold INTEGER NOT NULL DEFAULT 0;");
+    }
+    if (!listingCols.some((c) => c.name === "submittedByBrokerId")) {
+      db.exec("ALTER TABLE listings ADD COLUMN submittedByBrokerId TEXT;");
+    }
+    if (!listingCols.some((c) => c.name === "submittedByBrokerName")) {
+      db.exec("ALTER TABLE listings ADD COLUMN submittedByBrokerName TEXT;");
+    }
+    if (!listingCols.some((c) => c.name === "consentStatus")) {
+      db.exec("ALTER TABLE listings ADD COLUMN consentStatus TEXT DEFAULT 'consent_provided';");
+    }
+    if (!listingCols.some((c) => c.name === "consentDocumentationRef")) {
+      db.exec("ALTER TABLE listings ADD COLUMN consentDocumentationRef TEXT;");
+    }
+    if (!listingCols.some((c) => c.name === "ownerPhone")) {
+      db.exec("ALTER TABLE listings ADD COLUMN ownerPhone TEXT;");
+    }
+    if (!listingCols.some((c) => c.name === "ownerEmail")) {
+      db.exec("ALTER TABLE listings ADD COLUMN ownerEmail TEXT;");
+    }
+    if (!listingCols.some((c) => c.name === "preferredContactMethod")) {
+      db.exec("ALTER TABLE listings ADD COLUMN preferredContactMethod TEXT;");
+    }
+
+    const reviewCols = db.prepare("PRAGMA table_info(property_reviews)").all() as Array<{ name: string }>;
+    if (!reviewCols.some((c) => c.name === "selectedComparableIds")) {
+      db.exec("ALTER TABLE property_reviews ADD COLUMN selectedComparableIds TEXT;");
     }
 
     // Backfill images for any listings where images is NULL
@@ -841,6 +867,13 @@ export interface DbListingRow {
   bedrooms?: number | null;
   bathrooms?: number | null;
   isSold?: number | null;
+  submittedByBrokerId?: string | null;
+  submittedByBrokerName?: string | null;
+  consentStatus?: ConsentStatus | null;
+  consentDocumentationRef?: string | null;
+  ownerPhone?: string | null;
+  ownerEmail?: string | null;
+  preferredContactMethod?: "phone" | "email" | "whatsapp" | null;
   khataType: string | null;
   surveyNumber: string | null;
   conversionStatus: string | null;
@@ -912,6 +945,7 @@ export function rowToListing(row: DbListingRow): Listing {
     ownerDeclaredValue: row.ownerDeclaredValue,
     reviewedValue: row.reviewedValue ?? undefined,
     status: row.status,
+    rejectionReason: row.rejectionReason ?? undefined,
     locked: row.locked === 1,
     intent: effectiveIntent,
     askingPrice,
@@ -921,6 +955,13 @@ export function rowToListing(row: DbListingRow): Listing {
     isSold: row.isSold === 1,
     imageUrl: primaryThumb,
     images: galleryImages,
+    submittedByBrokerId: row.submittedByBrokerId ?? undefined,
+    submittedByBrokerName: row.submittedByBrokerName ?? undefined,
+    consentStatus: (row.consentStatus as ConsentStatus) ?? undefined,
+    consentDocumentationRef: row.consentDocumentationRef ?? undefined,
+    ownerPhone: row.ownerPhone ?? undefined,
+    ownerEmail: row.ownerEmail ?? undefined,
+    preferredContactMethod: row.preferredContactMethod ?? undefined,
     wants: {
       propertyTypes,
       preferredLocations,
@@ -947,7 +988,14 @@ export function rowToListing(row: DbListingRow): Listing {
       askingPrice,
       saleDescription: row.saleDescription,
       bedrooms: row.bedrooms,
-      bathrooms: row.bathrooms
+      bathrooms: row.bathrooms,
+      submittedByBrokerId: row.submittedByBrokerId ?? undefined,
+      submittedByBrokerName: row.submittedByBrokerName ?? undefined,
+      consentStatus: row.consentStatus ?? undefined,
+      consentDocumentationRef: row.consentDocumentationRef ?? undefined,
+      ownerPhone: row.ownerPhone ?? undefined,
+      ownerEmail: row.ownerEmail ?? undefined,
+      preferredContactMethod: row.preferredContactMethod ?? undefined
     }
   };
 }

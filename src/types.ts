@@ -35,6 +35,8 @@ export type AreaUnit = "sq_ft" | "guntas" | "acres";
 
 export type ListingIntent = "swap" | "sell" | "both";
 
+export type ConsentStatus = "pending_consent" | "consent_provided" | "verified_by_owner";
+
 export type VerificationStatus =
   | "draft"
   | "submitted"
@@ -74,6 +76,7 @@ export interface Listing {
   ownerDeclaredValue: number;
   reviewedValue?: number;
   status: VerificationStatus;
+  rejectionReason?: string;
   locked: boolean;
   intent?: ListingIntent;
   askingPrice?: number;
@@ -85,8 +88,39 @@ export interface Listing {
   sellerId?: string;
   imageUrl?: string;
   images?: string[];
+  submittedByBrokerId?: string;
+  submittedByBrokerName?: string;
+  consentStatus?: ConsentStatus;
+  consentDocumentationRef?: string;
+  ownerPhone?: string;
+  ownerEmail?: string;
+  preferredContactMethod?: "phone" | "email" | "whatsapp";
   wants: OwnerRequirement;
   metadata?: Record<string, unknown>;
+}
+
+export interface ComparableProperty {
+  id: string;
+  title: string;
+  propertyType: PropertyType;
+  locality: string;
+  district: string;
+  taluk?: string;
+  area: number;
+  areaUnit: AreaUnit;
+  bedrooms?: number;
+  bathrooms?: number;
+  referenceValuation: number;
+  referenceType: "verified_broker_valuation" | "market_asking_price" | "owner_declared_value";
+  referenceSource: string;
+  isVerified: boolean;
+  distanceKm: number | null;
+  proximityLabel: string;
+  ratePerSqFt: number;
+  imageUrl?: string;
+  images?: string[];
+  status: string;
+  intent?: ListingIntent;
 }
 
 export interface BuyerInquiry {
