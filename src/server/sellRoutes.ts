@@ -233,14 +233,19 @@ sellRouter.patch("/listings/:id/deactivate", (req: Request, res: Response) => {
 });
 
 // ==========================================
-// 4. Inquiries Received from Buyers
+// 4. Inquiries Received from Buyers (STRICTLY PRIVACY-PROTECTED)
 // ==========================================
 sellRouter.get("/inquiries", (req: Request, res: Response) => {
   try {
     const ownerId = req.user!.id;
 
+    // PRIVACY RULE: Never select or expose buyerEmail, buyerPhone, or buyerId to the seller!
     const rows = db.prepare(`
-      SELECT i.*,
+      SELECT i.id, i.listingId, i.sellerId, i.buyerName, i.offerAmount, i.message,
+             i.status, i.sellerResponse, i.sellerRespondedAt, i.sellerNotes,
+             i.adminStatus, i.adminReviewedAt, i.coordinationStatus,
+             i.siteVisitDate, i.siteVisitLocation, i.siteVisitNotes,
+             i.createdAt, i.updatedAt,
              l.title as listingTitle,
              l.propertyType as listingPropertyType,
              l.district as listingDistrict,
@@ -264,21 +269,12 @@ sellRouter.get("/inquiries", (req: Request, res: Response) => {
   }
 });
 
-// ==========================================
-// 5. Update Inquiry Status (Seller Action)
-// ==========================================
-sellRouter.patch("/inquiries/:id/status", (req: Request, res: Response) => {
+// Shared Seller Response handler
+function handleSellerInquiryResponse(req: Request, res: Response) {
   try {
     const id = String(req.params.id);
-    const { status } = req.body;
+    const { status, decision, notes } = req.body;
     const ownerId = req.user!.id;
-
-    if (!["pending", "contacted", "closed"].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid inquiry status. Must be pending, contacted, or closed."
-      });
-    }
 
     const inquiry = db.prepare("SELECT * FROM buyer_inquiries WHERE id = ?").get(id) as any;
     if (!inquiry) {
@@ -292,16 +288,156 @@ sellRouter.patch("/inquiries/:id/status", (req: Request, res: Response) => {
       });
     }
 
-    const now = new Date().toISOString();
-    db.prepare("UPDATE buyer_inquiries SET status = ?, updatedAt = ? WHERE id = ?").run(status, now, id);
+    // Normalize intent: support explicit decision ('accepted' | 'declined') and status ('pending' | 'contacted' | 'closed' | 'accepted' | 'declined')
+    const rawChoice = decision || status;
+    if (!["pending", "contacted", "closed", "accepted", "declined"].includes(rawChoice)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid decision or status. Must be accepted, declined, pending, contacted, or closed."
+      });
+    }
 
-    res.json({
+    const now = new Date().toISOString();
+    const listing = getDbListingById(inquiry.listingId);
+    const listingLabel = listing?.title || inquiry.listingId;
+
+    if (rawChoice === "accepted" || rawChoice === "contacted") {
+      const legacyStatus = "contacted";
+      db.prepare(`
+        UPDATE buyer_inquiries
+        SET status = ?,
+            sellerResponse = 'accepted',
+            sellerRespondedAt = ?,
+            sellerNotes = COALESCE(?, sellerNotes),
+            coordinationStatus = CASE
+              WHEN adminStatus = 'approved_for_coordination' THEN coordinationStatus
+              ELSE 'awaiting_admin_review'
+            END,
+            updatedAt = ?
+        WHERE id = ?
+      `).run(legacyStatus, now, notes ? String(notes).trim() : null, now, id);
+
+      db.prepare(`
+        INSERT INTO purchase_coordination_timeline (id, inquiryId, action, notes, performedBy, performedById, createdAt)
+        VALUES (?, ?, 'seller_accepted_interest', ?, ?, ?, ?)
+      `).run(
+        `ptime-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id,
+        notes ? `Seller accepted interest: ${String(notes).trim()}` : "Seller agreed to proceed with purchase interest. Flagged for Admin review.",
+        req.user!.name,
+        req.user!.id,
+        now
+      );
+
+      db.prepare(`
+        INSERT INTO notifications (id, userId, role, title, message, type, link, entityId, isRead, createdAt)
+        VALUES (?, NULL, 'admin', 'Mutual Purchase Interest Awaiting Review', ?, 'purchase_interest_review', '/admin/dashboard', ?, 0, ?)
+      `).run(
+        `notif-${Date.now()}-adm`,
+        `Seller accepted purchase interest for "${listingLabel}" (Buyer: ${inquiry.buyerName}). Review to approve Asset Swap coordination.`,
+        id,
+        now
+      );
+
+      db.prepare(`
+        INSERT INTO notifications (id, userId, role, title, message, type, link, entityId, isRead, createdAt)
+        VALUES (?, ?, 'owner', 'Seller Accepted Your Purchase Interest', ?, 'success', '/buy', ?, 0, ?)
+      `).run(
+        `notif-${Date.now()}-buy`,
+        inquiry.buyerId,
+        `The property owner accepted your purchase interest for "${listingLabel}". Asset Swap administration will now review and initiate coordination.`,
+        id,
+        now
+      );
+
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'inquiry', ?, 'seller_accepted_purchase_interest', ?, ?, ?)
+      `).run(`log-${Date.now()}`, id, JSON.stringify({ listingId: inquiry.listingId, notes }), req.user!.name, now);
+
+      return res.json({
+        success: true,
+        message: "Interest accepted. This mutual purchase interest has been forwarded to Asset Swap administration for coordination.",
+        data: {
+          id,
+          status: legacyStatus,
+          sellerResponse: "accepted",
+          adminStatus: inquiry.adminStatus,
+          coordinationStatus: "awaiting_admin_review",
+          updatedAt: now
+        }
+      });
+    }
+
+    if (rawChoice === "declined" || rawChoice === "closed") {
+      const legacyStatus = "closed";
+      const newCoordStatus = rawChoice === "declined" ? "declined" : "closed";
+      db.prepare(`
+        UPDATE buyer_inquiries
+        SET status = ?,
+            sellerResponse = 'declined',
+            sellerRespondedAt = ?,
+            sellerNotes = COALESCE(?, sellerNotes),
+            coordinationStatus = ?,
+            updatedAt = ?
+        WHERE id = ?
+      `).run(legacyStatus, now, notes ? String(notes).trim() : null, newCoordStatus, now, id);
+
+      db.prepare(`
+        INSERT INTO purchase_coordination_timeline (id, inquiryId, action, notes, performedBy, performedById, createdAt)
+        VALUES (?, ?, 'seller_declined_interest', ?, ?, ?, ?)
+      `).run(
+        `ptime-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id,
+        notes ? `Seller declined interest: ${String(notes).trim()}` : "Seller declined the purchase inquiry.",
+        req.user!.name,
+        req.user!.id,
+        now
+      );
+
+      db.prepare(`
+        INSERT INTO notifications (id, userId, role, title, message, type, link, entityId, isRead, createdAt)
+        VALUES (?, ?, 'owner', 'Purchase Interest Update', ?, 'info', '/buy', ?, 0, ?)
+      `).run(
+        `notif-${Date.now()}-buy`,
+        inquiry.buyerId,
+        `Your purchase interest for "${listingLabel}" was declined by the property owner.`,
+        id,
+        now
+      );
+
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'inquiry', ?, 'seller_declined_purchase_interest', ?, ?, ?)
+      `).run(`log-${Date.now()}`, id, JSON.stringify({ listingId: inquiry.listingId, notes }), req.user!.name, now);
+
+      return res.json({
+        success: true,
+        message: "Purchase interest declined.",
+        data: {
+          id,
+          status: legacyStatus,
+          sellerResponse: "declined",
+          coordinationStatus: newCoordStatus,
+          updatedAt: now
+        }
+      });
+    }
+
+    db.prepare("UPDATE buyer_inquiries SET status = ?, updatedAt = ? WHERE id = ?").run(rawChoice, now, id);
+    return res.json({
       success: true,
-      message: `Inquiry marked as ${status}.`,
-      data: { id, status, updatedAt: now }
+      message: `Inquiry status updated to ${rawChoice}.`,
+      data: { id, status: rawChoice, updatedAt: now }
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });
   }
-});
+}
+
+// ==========================================
+// 5. Seller Actions on Purchase Interest
+// ==========================================
+sellRouter.patch("/inquiries/:id/status", handleSellerInquiryResponse);
+sellRouter.post("/inquiries/:id/respond", handleSellerInquiryResponse);

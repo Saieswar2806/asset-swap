@@ -19,6 +19,7 @@ import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import { formatCurrency } from "../components/PropertyCard.js";
 import { BackButton } from "../components/BackButton.js";
+import { getExchangeCoordStatusLabel } from "../utils/statusLabels.js";
 
 interface ProposalParticipant {
   listingId: string;
@@ -119,7 +120,7 @@ export const ProposalsPage: React.FC = () => {
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-300">
             <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-            <span>Your Response Pending</span>
+            <span>Awaiting Your Response</span>
           </span>
         );
       }
@@ -127,7 +128,7 @@ export const ProposalsPage: React.FC = () => {
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
             <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-            <span>Accepted by You (Awaiting Other Participant)</span>
+            <span>Your Response: Accepted (Awaiting Other Participants)</span>
           </span>
         );
       }
@@ -140,27 +141,19 @@ export const ProposalsPage: React.FC = () => {
     }
 
     if (item.status === "accepted") {
+      const coordLabel = getExchangeCoordStatusLabel(item.coordination?.status);
       return (
         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Exchange Accepted</span>
-        </span>
-      );
-    }
-
-    if (item.status === "declined") {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-50 text-red-800 border border-red-200">
-          <XCircle className="w-3.5 h-3.5 text-red-600" />
-          <span>Exchange Declined</span>
+          <span>{coordLabel}</span>
         </span>
       );
     }
 
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300">
-        <Clock className="w-3.5 h-3.5" />
-        <span>Proposal Expired</span>
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-50 text-red-800 border border-red-200">
+        <XCircle className="w-3.5 h-3.5 text-red-600" />
+        <span>Exchange Declined</span>
       </span>
     );
   };
@@ -173,18 +166,11 @@ export const ProposalsPage: React.FC = () => {
           <BackButton defaultPath="/owner/dashboard" label="Back to Dashboard" className="mb-2" />
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Exchange Proposals</h1>
           <p className="text-xs text-slate-500 mt-1">
-            Review active multi-party exchange proposals, record your independent consent, and track exchange milestones.
+            Review exchange proposals, submit your independent decision, and follow Asset Swap team coordination updates.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <Link
-            to="/exchange-progress"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors shadow-2xs"
-          >
-            <Clock className="w-3.5 h-3.5" />
-            <span>Exchange Progress</span>
-          </Link>
           <button
             onClick={fetchProposals}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
@@ -195,14 +181,13 @@ export const ProposalsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs (No Expired Category) */}
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
         {[
           { id: "all", label: "All Proposals" },
-          { id: "proposed", label: "Active Proposals" },
-          { id: "accepted", label: "Accepted Exchanges" },
-          { id: "declined", label: "Declined" },
-          { id: "expired", label: "Expired" }
+          { id: "proposed", label: "Awaiting Responses" },
+          { id: "accepted", label: "Accepted by All" },
+          { id: "declined", label: "Declined" }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -456,28 +441,49 @@ export const ProposalsPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Inline Admin Coordination & Site Visit Status (Replaces separate Exchange Progress page) */}
+                  {item.status === "accepted" && (
+                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-2 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-bold text-emerald-900 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span>Accepted by All Participants • {getExchangeCoordStatusLabel(item.coordination?.status)}</span>
+                        </span>
+                        <span className="text-[11px] font-semibold text-emerald-800 bg-white px-2.5 py-0.5 rounded-full border border-emerald-200">
+                          Asset Swap Team Facilitated
+                        </span>
+                      </div>
+
+                      {item.coordination?.siteVisitDate && (
+                        <div className="bg-white border border-emerald-200 rounded-lg p-2.5 flex flex-wrap items-center gap-3 text-slate-700">
+                          <span className="flex items-center gap-1 font-bold text-purple-800">
+                            <Calendar className="w-3.5 h-3.5 text-purple-600" />
+                            Site Visit Scheduled: {new Date(item.coordination.siteVisitDate).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                          {item.coordination.siteVisitLocation && (
+                            <span className="text-slate-600">Location: {item.coordination.siteVisitLocation}</span>
+                          )}
+                        </div>
+                      )}
+
+                      <p className="text-[11px] text-emerald-800">
+                        Participant contact information remains protected. The Asset Swap coordination team arranges in-person site inspections, title verification, and next steps directly with all parties.
+                      </p>
+                    </div>
+                  )}
+
                   {/* Status Banner */}
                   <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500">
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="w-4 h-4 text-blue-600" />
                       <span>
                         {item.status === "proposed"
-                          ? "Properties are reserved while owner consent is pending. Both parties must accept independently."
+                          ? "Participating properties are reserved while owner consent is pending. All parties must accept independently."
                           : item.status === "accepted"
-                          ? "All participating property owners have accepted. Platform coordination and site visit scheduling are underway."
-                          : "Proposal concluded. Participating properties are released for other exchange matches."}
+                          ? "Unanimous owner agreement recorded. Administrative facilitation and legal coordination are managed by the Asset Swap team."
+                          : "Proposal declined. Participating properties remain available for other exchange matches."}
                       </span>
                     </div>
-
-                    {item.status === "accepted" && (
-                      <Link
-                        to="/exchange-progress"
-                        className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 shrink-0"
-                      >
-                        <span>View Coordination Milestones</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </Link>
-                    )}
                   </div>
                 </div>
               </div>

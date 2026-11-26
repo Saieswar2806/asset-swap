@@ -55,13 +55,11 @@ export const OwnerLayout: React.FC = () => {
   const navItems: NavLinkItem[] = [
     { path: "/owner/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/my-properties", label: "My Properties", icon: Building2 },
-    { path: "/swap", label: "Swap Opportunities", icon: ArrowLeftRight },
-    { path: "/buy", label: "Buy Marketplace", icon: ShoppingBag },
-    { path: "/sell", label: "Sell Portfolio", icon: Tag },
+    { path: "/swap", label: "Swap", icon: ArrowLeftRight },
+    { path: "/buy", label: "Buy", icon: ShoppingBag },
+    { path: "/sell", label: "Sell", icon: Tag },
     { path: "/proposals", label: "Swap Proposals", icon: FileCheck2 },
-    { path: "/exchange-progress", label: "Exchange Progress", icon: Clock },
-    { path: "/activity", label: "Activity Trail", icon: Activity },
-    { path: "/profile", label: "Account Profile", icon: UserCircle2 }
+    { path: "/profile", label: "Profile", icon: UserCircle2 }
   ];
 
   const isActive = (path: string) => {

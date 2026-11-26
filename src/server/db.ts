@@ -391,16 +391,114 @@ export function initDatabase(): void {
       db.exec("ALTER TABLE exchange_requirements ADD COLUMN openToCashAdjustment INTEGER DEFAULT 1;");
     }
 
-    // Backfill accepted matches into exchange_coordinations
+    // Backfill accepted matches into exchange_coordinations & ensure match_responses exist
     try {
-      const acceptedMatches = db.prepare("SELECT id, createdAt, updatedAt FROM matches WHERE status = 'accepted'").all() as Array<{ id: string; createdAt: string; updatedAt: string }>;
+      const acceptedMatches = db.prepare("SELECT id, listingIds, createdAt, updatedAt FROM matches WHERE status = 'accepted'").all() as Array<{ id: string; listingIds: string; createdAt: string; updatedAt: string }>;
       const insertCoord = db.prepare(`
         INSERT OR IGNORE INTO exchange_coordinations (id, matchId, status, updatedAt, createdAt)
         VALUES (?, ?, 'awaiting_coordination', ?, ?)
       `);
+      const insertAcceptedResp = db.prepare(`
+        INSERT OR IGNORE INTO match_responses (id, matchId, listingId, ownerId, decision, respondedAt)
+        VALUES (?, ?, ?, ?, 'accepted', ?)
+      `);
       for (const am of acceptedMatches) {
         insertCoord.run(`coord-${am.id}`, am.id, am.updatedAt, am.createdAt);
+        try {
+          const lids = JSON.parse(am.listingIds) as string[];
+          for (const lid of lids) {
+            const listing = db.prepare("SELECT ownerId FROM listings WHERE id = ?").get(lid) as { ownerId: string } | undefined;
+            if (listing) {
+              insertAcceptedResp.run(`${am.id}-${lid}`, am.id, lid, listing.ownerId, am.updatedAt);
+            }
+          }
+        } catch {}
       }
+    } catch {
+      // non-fatal
+    }
+
+    // Remove phantom unproposed matches corrupted to 'declined' with zero match_responses and no decline/expire audit log
+    try {
+      db.exec(`
+        DELETE FROM matches
+        WHERE status IN ('declined', 'proposed', 'expired')
+          AND id NOT IN (SELECT DISTINCT matchId FROM match_responses)
+          AND id NOT IN (SELECT DISTINCT entityId FROM audit_logs WHERE entityType = 'match' AND action IN ('match_declined', 'match_expired'));
+      `);
+    } catch {
+      // non-fatal
+    }
+
+    // Safe schema migrations for buyer_inquiries (Seller Response, Admin Review, Coordination Workflow)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS purchase_coordination_timeline (
+        id TEXT PRIMARY KEY,
+        inquiryId TEXT NOT NULL REFERENCES buyer_inquiries(id) ON DELETE CASCADE,
+        action TEXT NOT NULL,
+        notes TEXT,
+        performedBy TEXT NOT NULL,
+        performedById TEXT NOT NULL,
+        createdAt TEXT NOT NULL
+      );
+    `);
+
+    const inqCols = db.prepare("PRAGMA table_info(buyer_inquiries)").all() as Array<{ name: string }>;
+    if (!inqCols.some((c) => c.name === "sellerResponse")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN sellerResponse TEXT NOT NULL DEFAULT 'pending';");
+    }
+    if (!inqCols.some((c) => c.name === "sellerRespondedAt")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN sellerRespondedAt TEXT;");
+    }
+    if (!inqCols.some((c) => c.name === "sellerNotes")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN sellerNotes TEXT;");
+    }
+    if (!inqCols.some((c) => c.name === "adminStatus")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN adminStatus TEXT NOT NULL DEFAULT 'pending';");
+    }
+    if (!inqCols.some((c) => c.name === "adminReviewedAt")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN adminReviewedAt TEXT;");
+    }
+    if (!inqCols.some((c) => c.name === "adminNotes")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN adminNotes TEXT;");
+    }
+    if (!inqCols.some((c) => c.name === "coordinationStatus")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN coordinationStatus TEXT NOT NULL DEFAULT 'awaiting_seller_response';");
+    }
+    if (!inqCols.some((c) => c.name === "siteVisitDate")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN siteVisitDate TEXT;");
+    }
+    if (!inqCols.some((c) => c.name === "siteVisitLocation")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN siteVisitLocation TEXT;");
+    }
+    if (!inqCols.some((c) => c.name === "siteVisitNotes")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN siteVisitNotes TEXT;");
+    }
+    if (!inqCols.some((c) => c.name === "coordinationNotes")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN coordinationNotes TEXT;");
+    }
+    if (!inqCols.some((c) => c.name === "assignedAdminId")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN assignedAdminId TEXT;");
+    }
+    if (!inqCols.some((c) => c.name === "assignedAdminName")) {
+      db.exec("ALTER TABLE buyer_inquiries ADD COLUMN assignedAdminName TEXT;");
+    }
+
+    // Backfill legacy inquiry statuses into structured workflow fields
+    try {
+      db.exec(`
+        UPDATE buyer_inquiries
+        SET sellerResponse = 'accepted',
+            sellerRespondedAt = COALESCE(sellerRespondedAt, updatedAt),
+            coordinationStatus = CASE WHEN coordinationStatus = 'awaiting_seller_response' THEN 'awaiting_admin_review' ELSE coordinationStatus END
+        WHERE status = 'contacted' AND sellerResponse = 'pending';
+
+        UPDATE buyer_inquiries
+        SET sellerResponse = 'declined',
+            sellerRespondedAt = COALESCE(sellerRespondedAt, updatedAt),
+            coordinationStatus = CASE WHEN coordinationStatus = 'awaiting_seller_response' THEN 'closed' ELSE coordinationStatus END
+        WHERE status = 'closed' AND sellerResponse = 'pending';
+      `);
     } catch {
       // non-fatal
     }

@@ -22,7 +22,7 @@ export const MyPropertiesPage: React.FC = () => {
   useEffect(() => {
     if (!currentUser) return;
     setLoading(true);
-    api.getListings({ ownerId: currentUser.id })
+    api.getOwnerListings()
       .then((data) => {
         setListings(data);
       })
@@ -34,7 +34,8 @@ export const MyPropertiesPage: React.FC = () => {
 
   const filteredListings = listings.filter((l) => {
     if (selectedStatus === "all") return true;
-    if (selectedStatus === "locked") return l.locked;
+    if (selectedStatus === "active_proposal") return l.locked;
+    if (selectedStatus === "under_review") return l.status === "submitted" || l.status === "under_review";
     return l.status === selectedStatus;
   });
 
@@ -90,9 +91,9 @@ export const MyPropertiesPage: React.FC = () => {
       <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
         {[
           { id: "all", label: "All Properties", count: listings.length },
-          { id: "reviewed", label: "Approved", count: listings.filter((l) => l.status === "reviewed").length },
-          { id: "submitted", label: "Under Review", count: listings.filter((l) => l.status === "submitted" || l.status === "under_review").length },
-          { id: "locked", label: "In Active Proposal", count: listings.filter((l) => l.locked).length },
+          { id: "reviewed", label: "Approved for Listing", count: listings.filter((l) => l.status === "reviewed").length },
+          { id: "under_review", label: "Submitted / Under Review", count: listings.filter((l) => l.status === "submitted" || l.status === "under_review").length },
+          { id: "active_proposal", label: "In Active Proposal", count: listings.filter((l) => l.locked).length },
           { id: "rejected", label: "Rejected", count: listings.filter((l) => l.status === "rejected").length }
         ].map((tab) => (
           <button
@@ -145,20 +146,30 @@ export const MyPropertiesPage: React.FC = () => {
               <div className="bg-white border-x border-b border-slate-200 rounded-b-xl -mt-1 p-3 pt-4 flex items-center justify-between gap-2 shadow-2xs">
                 {listing.status === "reviewed" && !listing.locked ? (
                   <button
-                    onClick={() => navigate(`/matches?listingId=${listing.id}`)}
+                    onClick={() => navigate(listing.intent === "sell" ? "/sell" : `/swap`)}
                     className="flex-1 py-1.5 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    Find Direct & 3-Way Swaps
+                    {listing.intent === "sell" ? "Manage Sale Listing" : "Explore Swap Opportunities"}
                   </button>
                 ) : listing.locked ? (
-                  <span className="flex-1 text-center py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-center gap-1">
+                  <Link
+                    to="/proposals"
+                    className="flex-1 text-center py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center justify-center gap-1 transition-colors"
+                  >
                     <Clock className="w-3.5 h-3.5 text-blue-600" />
-                    Exchange Proposal Active
+                    <span>{(listing as any).activeProposal?.statusLabel || "Exchange Proposal Active"}</span>
+                  </Link>
+                ) : listing.status === "rejected" ? (
+                  <span
+                    title={listing.rejectionReason || (listing.metadata?.rejectionReason as string) || "Rejected during valuation review"}
+                    className="flex-1 text-center py-1.5 px-2 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg truncate"
+                  >
+                    Rejected: {listing.rejectionReason || (listing.metadata?.rejectionReason as string) || "Review Required"}
                   </span>
                 ) : (
-                  <span className="flex-1 text-center py-1.5 text-xs font-semibold text-slate-500 bg-slate-50 border border-slate-200 rounded-lg">
-                    Awaiting Broker Review
+                  <span className="flex-1 text-center py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg">
+                    {listing.status === "under_review" ? "Under Broker Review" : listing.status === "draft" ? "Draft" : "Submitted for Review"}
                   </span>
                 )}
 

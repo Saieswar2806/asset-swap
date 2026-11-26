@@ -138,6 +138,35 @@ apiRouter.get("/dashboard/stats", (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Strips private owner contact details and internal broker/consent fields
+ * for any caller who is not an Admin, Broker, or the property's own Owner.
+ */
+function sanitizeListingForViewer(listing: Listing, user?: Request["user"]): Listing {
+  const isStaff = !!user && (user.role === "admin" || user.role === "broker");
+  const isOwner = !!user && user.id === listing.ownerId;
+  if (isStaff || isOwner) {
+    return listing;
+  }
+  const cleanMeta = listing.metadata ? { ...listing.metadata } : undefined;
+  if (cleanMeta) {
+    delete cleanMeta.rejectionReason;
+    delete cleanMeta.ownerPhone;
+    delete cleanMeta.ownerEmail;
+    delete cleanMeta.preferredContactMethod;
+    delete cleanMeta.consentDocumentationRef;
+  }
+  return {
+    ...listing,
+    rejectionReason: undefined,
+    ownerPhone: undefined,
+    ownerEmail: undefined,
+    preferredContactMethod: undefined,
+    consentDocumentationRef: undefined,
+    metadata: cleanMeta
+  };
+}
+
 // ==========================================
 // 3. Property Listings (CRUD & Search)
 // ==========================================
@@ -208,23 +237,7 @@ apiRouter.get("/listings", (req: Request, res: Response) => {
     query += " ORDER BY l.createdAt DESC";
 
     const rows = db.prepare(query).all(...params) as unknown as DbListingRow[];
-    let listings = rows.map(rowToListing);
-
-    // Sanitize metadata for public/non-owner view (strip rejection reasons)
-    if (!user || user.role === "owner") {
-      listings = listings.map((l) => {
-        if (!user || (user.role === "owner" && l.ownerId !== user.id)) {
-          return {
-            ...l,
-            metadata: {
-              ...l.metadata,
-              rejectionReason: undefined
-            }
-          };
-        }
-        return l;
-      });
-    }
+    const listings = rows.map(rowToListing).map((l) => sanitizeListingForViewer(l, user));
 
     res.json({ success: true, count: listings.length, data: listings });
   } catch (err: unknown) {
@@ -249,14 +262,8 @@ apiRouter.get("/listings/:id", (req: Request, res: Response) => {
       }
     }
 
-    // Strip rejectionReason for public or other owners
-    if (!user || (user.role === "owner" && user.id !== listing.ownerId)) {
-      if (listing.metadata) {
-        listing.metadata.rejectionReason = undefined;
-      }
-    }
-
-    res.json({ success: true, data: listing });
+    const sanitizedListing = sanitizeListingForViewer(listing, user);
+    res.json({ success: true, data: sanitizedListing });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });
@@ -521,67 +528,7 @@ apiRouter.get("/matches", (req: Request, res: Response) => {
       filteredMatches = matches.filter((m) => m.listingIds.some((id) => ownerListingIds.has(id)));
     }
 
-    // Persist discovered matches into SQLite database cache
-    const now = new Date().toISOString();
-    const insertMatch = db.prepare(`
-      INSERT OR REPLACE INTO matches (
-        id, matchType, partyCount, cycle, listingIds, totalAbsoluteBoot,
-        locationScoreKm, matchScore, verificationStatus, status, explanation,
-        reasons, exchangeLegs, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reviewed', ?, ?, ?, ?, ?, ?)
-    `);
-
-    const insertParticipant = db.prepare(`
-      INSERT OR REPLACE INTO match_participants (
-        id, matchId, listingId, ownerId, ownerName, givesAssetId, givesPropertyType,
-        givesValue, receivesAssetId, receivesPropertyType, receivesValue, amount,
-        action, cashDifference, explanation
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    for (const match of filteredMatches) {
-      const existing = db.prepare("SELECT status FROM matches WHERE id = ?").get(match.id) as { status: string } | undefined;
-      const status = existing ? existing.status : "proposed";
-
-      insertMatch.run(
-        match.id,
-        match.partyCount === 2 ? "direct" : "3-party",
-        match.partyCount,
-        JSON.stringify(match.cycle),
-        JSON.stringify(match.listingIds),
-        match.totalAbsoluteBoot,
-        match.locationScoreKm,
-        match.matchScore,
-        status,
-        match.explanation,
-        JSON.stringify(match.reasons),
-        JSON.stringify(match.exchangeLegs),
-        match.createdAt,
-        now
-      );
-
-      for (const boot of match.boots) {
-        insertParticipant.run(
-          `${match.id}-${boot.listingId}`,
-          match.id,
-          boot.listingId,
-          boot.ownerId,
-          boot.ownerName,
-          boot.givesAssetId,
-          boot.givesPropertyType,
-          boot.givesValue,
-          boot.receivesAssetId,
-          boot.receivesPropertyType,
-          boot.receivesValue,
-          boot.amount,
-          boot.action,
-          boot.cashDifference,
-          boot.explanation
-        );
-      }
-    }
-
-    // Read matches with stored responses
+    // Read-only enrichment: check if any discovered match already has a persisted proposal state
     const enrichedMatches = filteredMatches.map((m) => {
       const stored = db.prepare("SELECT status FROM matches WHERE id = ?").get(m.id) as { status: string } | undefined;
       const responsesRows = db.prepare("SELECT listingId, decision FROM match_responses WHERE matchId = ?").all(m.id) as Array<{ listingId: string; decision: "pending" | "accepted" | "declined" }>;
@@ -591,9 +538,12 @@ apiRouter.get("/matches", (req: Request, res: Response) => {
       for (const r of responsesRows) {
         responses[r.listingId] = r.decision;
       }
+      // Only carry a stored status if a real proposal record exists with responses or accepted status
+      const hasRealProposal = stored && (responsesRows.length > 0 || stored.status === "accepted");
+      const effectiveStatus = hasRealProposal ? stored.status : "available";
       return {
         ...m,
-        status: (stored?.status as Match["status"]) || m.status,
+        status: effectiveStatus as Match["status"],
         responses
       };
     });
@@ -616,15 +566,52 @@ apiRouter.get("/matches/:id", (req: Request, res: Response) => {
     const id = String(req.params.id);
     const allListings = getAllDbListings();
     const matches = findMatches(allListings, { radiusKm: 60 });
-    const match = matches.find((m) => m.id === id);
+    let match: Match | undefined = matches.find((m) => m.id === id);
+
+    // Load persisted match record if already proposed/accepted (even if listings are locked)
+    const stored = db.prepare("SELECT * FROM matches WHERE id = ?").get(id) as any;
+    const responsesRows = db.prepare("SELECT listingId, decision FROM match_responses WHERE matchId = ?").all(id) as Array<{ listingId: string; decision: "pending" | "accepted" | "declined" }>;
+
+    if (!match && stored) {
+      const participantRows = db.prepare("SELECT * FROM match_participants WHERE matchId = ?").all(id) as any[];
+      const listingIds = JSON.parse(stored.listingIds) as string[];
+      match = {
+        id: stored.id,
+        listingIds,
+        cycle: JSON.parse(stored.cycle),
+        partyCount: stored.partyCount,
+        exchangeLegs: JSON.parse(stored.exchangeLegs),
+        boots: participantRows.map((p) => ({
+          listingId: p.listingId,
+          ownerId: p.ownerId,
+          ownerName: p.ownerName,
+          givesAssetId: p.givesAssetId,
+          givesPropertyType: p.givesPropertyType,
+          givesValue: p.givesValue,
+          receivesAssetId: p.receivesAssetId,
+          receivesPropertyType: p.receivesPropertyType,
+          receivesValue: p.receivesValue,
+          amount: p.amount,
+          action: p.action,
+          cashDifference: p.cashDifference,
+          explanation: p.explanation
+        })),
+        totalAbsoluteBoot: stored.totalAbsoluteBoot,
+        locationScoreKm: stored.locationScoreKm,
+        matchScore: stored.matchScore,
+        verificationStatus: "reviewed",
+        status: stored.status as Match["status"],
+        responses: Object.fromEntries(listingIds.map((lid) => [lid, "pending"])),
+        explanation: stored.explanation,
+        reasons: JSON.parse(stored.reasons),
+        createdAt: stored.createdAt
+      };
+    }
 
     if (!match) {
       return res.status(404).json({ success: false, error: "Match not found" });
     }
 
-    // Load responses
-    const stored = db.prepare("SELECT status FROM matches WHERE id = ?").get(id) as { status: string } | undefined;
-    const responsesRows = db.prepare("SELECT listingId, decision FROM match_responses WHERE matchId = ?").all(id) as Array<{ listingId: string; decision: "pending" | "accepted" | "declined" }>;
     const responses: Record<string, "pending" | "accepted" | "declined"> = Object.fromEntries(
       match.listingIds.map((lid) => [lid, "pending"])
     );
@@ -632,22 +619,25 @@ apiRouter.get("/matches/:id", (req: Request, res: Response) => {
       responses[r.listingId] = r.decision;
     }
 
-    // Attach full listing metadata to each participant
+    // Attach sanitized listing metadata to each participant (zero private contact leaks)
     const detailedParticipants = match.boots.map((boot) => {
       const listing = getDbListingById(boot.listingId);
       const receivedListing = getDbListingById(boot.receivesAssetId);
       return {
         ...boot,
-        ownedProperty: listing,
-        receivedProperty: receivedListing
+        ownedProperty: listing ? sanitizeListingForViewer(listing, req.user) : undefined,
+        receivedProperty: receivedListing ? sanitizeListingForViewer(receivedListing, req.user) : undefined
       };
     });
+
+    const hasRealProposal = stored && (responsesRows.length > 0 || stored.status === "accepted");
+    const effectiveStatus = hasRealProposal ? stored.status : "available";
 
     res.json({
       success: true,
       data: {
         ...match,
-        status: (stored?.status as Match["status"]) || match.status,
+        status: effectiveStatus as Match["status"],
         responses,
         participants: detailedParticipants
       }
@@ -1050,6 +1040,12 @@ apiRouter.get("/proposals", requireAuth, (req: Request, res: Response) => {
     const { status } = req.query;
     let query = "SELECT * FROM matches WHERE 1=1";
     const params: unknown[] = [];
+
+    // Requirement 13: Remove expired proposals from owner-facing Swap Proposals while preserving DB records
+    if (req.user!.role === "owner") {
+      query += " AND status != 'expired'";
+    }
+
     if (status && typeof status === "string" && status !== "all") {
       query += " AND status = ?";
       params.push(status);
@@ -1147,31 +1143,56 @@ apiRouter.get("/proposals", requireAuth, (req: Request, res: Response) => {
       const acceptedCount = participants.filter((p) => p.response === "accepted").length;
       const pendingCount = participants.filter((p) => p.response === "pending").length;
 
-      let formalStatus = "Awaiting Participant Responses";
-      let nextStep = "Awaiting Owner Decisions";
+      let formalStatus = "Awaiting Responses";
+      let nextStep = "Awaiting participant decisions";
       if (m.status === "proposed") {
         if (myDecision === "pending") {
-          formalStatus = "Your Decision Pending";
-          nextStep = "Please review and record your consent";
+          formalStatus = "Awaiting Your Response";
+          nextStep = "Please review terms and submit your independent decision";
         } else if (myDecision === "accepted") {
-          formalStatus = `Accepted by You (${acceptedCount}/${participants.length} Consented)`;
-          nextStep = "Awaiting other participating owner's response";
+          formalStatus = `Your Response: Accepted (${acceptedCount}/${participants.length} Consented)`;
+          nextStep = "Awaiting Other Participants";
         } else if (myDecision === "declined") {
-          formalStatus = "Exchange Declined by You";
-          nextStep = "Proposal closed; reservations released";
+          formalStatus = "Exchange Declined";
+          nextStep = "Proposal closed; participating properties available";
         }
       } else if (m.status === "accepted") {
-        formalStatus = "Exchange Accepted Unanimously";
-        nextStep = coordRow?.status === "site_visit_scheduled"
-          ? `Site Visit Scheduled for ${coordRow.siteVisitDate ? new Date(coordRow.siteVisitDate).toLocaleDateString("en-IN") : "Inspection"}`
-          : "Awaiting Administrative Coordination";
+        const cStatus = coordRow?.status || "awaiting_coordination";
+        if (cStatus === "site_visit_scheduled") {
+          formalStatus = "Site Visit Scheduled";
+          nextStep = coordRow?.siteVisitDate
+            ? `Site inspection scheduled for ${new Date(coordRow.siteVisitDate).toLocaleDateString("en-IN")}${coordRow.siteVisitLocation ? ` at ${coordRow.siteVisitLocation}` : ""}`
+            : "Physical site inspection scheduled by Asset Swap team";
+        } else if (cStatus === "site_visit_pending") {
+          formalStatus = "Site Visit Pending";
+          nextStep = "Asset Swap coordinator is arranging site inspection dates";
+        } else if (cStatus === "coordination_in_progress") {
+          formalStatus = "Coordination in Progress";
+          nextStep = "Asset Swap team is coordinating with participating owners";
+        } else if (cStatus === "legal_review_in_progress" || cStatus === "completed") {
+          formalStatus = "Exchange Process in Progress";
+          nextStep = "Due diligence and legal facilitation underway with Asset Swap team";
+        } else if (cStatus === "closed") {
+          formalStatus = "Closed";
+          nextStep = "Exchange facilitation concluded";
+        } else {
+          formalStatus = "Awaiting Admin Coordination";
+          nextStep = "Accepted by All Participants • Asset Swap team will initiate coordination";
+        }
       } else if (m.status === "declined") {
         formalStatus = "Exchange Declined";
-        nextStep = "Proposal concluded; properties available";
-      } else if (m.status === "expired") {
-        formalStatus = "Proposal Expired";
-        nextStep = "Proposal period elapsed; properties released";
+        nextStep = "Proposal concluded; properties released";
       }
+
+      const sanitizedCoord = coordRow
+        ? {
+            status: coordRow.status,
+            siteVisitDate: coordRow.siteVisitDate || null,
+            siteVisitLocation: coordRow.siteVisitLocation || null,
+            siteVisitNotes: coordRow.siteVisitNotes || null,
+            updatedAt: coordRow.updatedAt
+          }
+        : { status: "awaiting_coordination" };
 
       return {
         id: m.id,
@@ -1189,7 +1210,7 @@ apiRouter.get("/proposals", requireAuth, (req: Request, res: Response) => {
         myDecision,
         acceptedCount,
         pendingCount,
-        coordination: coordRow || { status: "awaiting_coordination" },
+        coordination: req.user?.role === "admin" ? (coordRow || { status: "awaiting_coordination" }) : sanitizedCoord,
         explanation: m.explanation,
         reasons: JSON.parse(m.reasons),
         exchangeLegs: JSON.parse(m.exchangeLegs),

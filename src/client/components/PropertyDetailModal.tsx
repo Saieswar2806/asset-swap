@@ -21,6 +21,7 @@ import {
 import type { Listing } from "../types.js";
 import { formatCurrency } from "./PropertyCard.js";
 import { PropertyImageGallery } from "./PropertyImageGallery.js";
+import { getPropertyStatusMeta } from "../utils/statusLabels.js";
 
 interface PropertyDetailModalProps {
   listing: Listing | null;
@@ -41,16 +42,17 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({
   const title = (meta.title as string) || listing.title || `${listing.propertyType.replace(/_/g, " ")} in ${listing.locality}`;
   const isResidential = ["apartment", "independent_house", "farmhouse"].includes(listing.propertyType);
 
-  const statusBadges: Record<string, { bg: string; text: string; icon: React.FC<{ className?: string }> }> = {
-    reviewed: { bg: "bg-emerald-100 text-emerald-800 border-emerald-300", text: "Broker Reviewed & Approved", icon: CheckCircle2 },
-    submitted: { bg: "bg-blue-100 text-blue-800 border-blue-300", text: "Under Broker Review", icon: Clock },
-    under_review: { bg: "bg-amber-100 text-amber-800 border-amber-300", text: "Under Broker Review", icon: Clock },
-    rejected: { bg: "bg-red-100 text-red-800 border-red-300", text: "Rejected Submission", icon: XCircle },
-    draft: { bg: "bg-slate-100 text-slate-700 border-slate-300", text: "Draft", icon: FileText }
+  const statusIcons: Record<string, React.FC<{ className?: string }>> = {
+    reviewed: CheckCircle2,
+    submitted: Clock,
+    under_review: Clock,
+    rejected: XCircle,
+    draft: FileText
   };
 
-  const statusInfo = statusBadges[listing.status] || statusBadges.submitted;
-  const StatusIcon = statusInfo.icon;
+  const statusMeta = getPropertyStatusMeta(listing.status);
+  const StatusIcon = statusIcons[listing.status] || Clock;
+  const statusInfo = { bg: statusMeta.badgeClass, text: statusMeta.label };
 
   const galleryImages = (listing.images && listing.images.length > 0)
     ? listing.images
@@ -71,9 +73,9 @@ export const PropertyDetailModal: React.FC<PropertyDetailModalProps> = ({
                 {statusInfo.text}
               </span>
               {listing.locked && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white shadow-xs">
-                  <Lock className="w-3 h-3" />
-                  Locked in Active Swap
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white shadow-xs">
+                  <Clock className="w-3 h-3" />
+                  Exchange Proposal Active
                 </span>
               )}
               {listing.intent && (

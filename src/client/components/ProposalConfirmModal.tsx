@@ -54,14 +54,14 @@ export const ProposalConfirmModal: React.FC<ProposalConfirmModalProps> = ({
                 {isDirect ? "2-Party Direct Exchange" : "3-Party Circular Trade Loop"}
               </span>
               <span className="font-mono text-xs font-bold text-slate-400">
-                #{match.id}
+                Ref: {match.id.replace("match-", "EXP-")}
               </span>
             </div>
             <h2 className="text-lg font-bold text-slate-900">
-              Review & Confirm Swap Proposal
+              Review & Submit Exchange Proposal
             </h2>
             <p className="text-xs text-slate-500">
-              Carefully verify participant properties, exchange directions, and cash adjustments before initiating escrow.
+              Carefully verify participant properties, exchange directions, and cash adjustments before submitting for participant consent.
             </p>
           </div>
 

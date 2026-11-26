@@ -169,17 +169,17 @@ buyRouter.get("/listings/:id", (req: Request, res: Response) => {
 });
 
 // ==========================================
-// 3. Submit Buyer Inquiry / Express Interest
+// 3. Submit Buyer Inquiry / Express Interest (Privacy-Protected)
 // ==========================================
 buyRouter.post("/inquiries", (req: Request, res: Response) => {
   try {
-    const { listingId, message, offerAmount, buyerPhone } = req.body;
+    const { listingId, message, offerAmount } = req.body;
     const buyer = req.user!;
 
     if (!listingId || !message || String(message).trim().length === 0) {
       return res.status(400).json({
         success: false,
-        error: "Listing ID and a message to the seller are required."
+        error: "Listing ID and a message regarding your purchase interest are required."
       });
     }
 
@@ -202,15 +202,30 @@ buyRouter.post("/inquiries", (req: Request, res: Response) => {
       });
     }
 
+    // Prevent duplicate pending purchase interest on same listing by same buyer
+    const existingPending = db.prepare(`
+      SELECT id FROM buyer_inquiries
+      WHERE listingId = ? AND buyerId = ? AND sellerResponse = 'pending' AND coordinationStatus = 'awaiting_seller_response'
+      LIMIT 1
+    `).get(listing.id, buyer.id) as { id: string } | undefined;
+
+    if (existingPending) {
+      return res.status(400).json({
+        success: false,
+        error: "You already have a pending purchase interest for this property."
+      });
+    }
+
     const inquiryId = `inq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const now = new Date().toISOString();
-    const phone = buyerPhone || buyer.phone || null;
+    // Derive buyer contact strictly from authenticated account for Admin-only coordination; never expose to seller
+    const accountPhone = buyer.phone || null;
 
     db.prepare(`
       INSERT INTO buyer_inquiries (
         id, listingId, sellerId, buyerId, buyerName, buyerEmail, buyerPhone,
-        offerAmount, message, status, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+        offerAmount, message, status, sellerResponse, adminStatus, coordinationStatus, createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', 'pending', 'awaiting_seller_response', ?, ?)
     `).run(
       inquiryId,
       listing.id,
@@ -218,12 +233,18 @@ buyRouter.post("/inquiries", (req: Request, res: Response) => {
       buyer.id,
       buyer.name,
       buyer.email,
-      phone,
+      accountPhone,
       offerAmount ? Number(offerAmount) : null,
       String(message).trim(),
       now,
       now
     );
+
+    // Timeline record
+    db.prepare(`
+      INSERT INTO purchase_coordination_timeline (id, inquiryId, action, notes, performedBy, performedById, createdAt)
+      VALUES (?, ?, 'interest_submitted', 'Buyer submitted purchase interest through Asset Swap platform.', ?, ?, ?)
+    `).run(`ptime-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, inquiryId, buyer.name, buyer.id, now);
 
     // Audit log
     db.prepare(`
@@ -237,14 +258,40 @@ buyRouter.post("/inquiries", (req: Request, res: Response) => {
       now
     );
 
+    // Notify Seller (PRIVACY-SAFE: never include buyer email or phone)
+    db.prepare(`
+      INSERT INTO notifications (id, userId, role, title, message, type, link, entityId, isRead, createdAt)
+      VALUES (?, ?, 'owner', 'New Purchase Interest Received', ?, 'info', '/sell', ?, 0, ?)
+    `).run(
+      `notif-${Date.now()}-s`,
+      listing.ownerId!,
+      `An interested buyer (${buyer.name}) submitted a purchase interest for "${listing.title || listing.locality}". Respond inside your Sell Portfolio.`,
+      inquiryId,
+      now
+    );
+
+    // Notify Admin
+    db.prepare(`
+      INSERT INTO notifications (id, userId, role, title, message, type, link, entityId, isRead, createdAt)
+      VALUES (?, NULL, 'admin', 'New Purchase Interest Submitted', ?, 'purchase_interest', '/admin/dashboard', ?, 0, ?)
+    `).run(
+      `notif-${Date.now()}-a`,
+      `Purchase interest received from ${buyer.name} for "${listing.title || listing.locality}" (Awaiting Seller Response).`,
+      inquiryId,
+      now
+    );
+
     res.json({
       success: true,
-      message: "Your purchase inquiry has been successfully transmitted to the property owner.",
+      message: "Your purchase interest has been submitted securely. The Asset Swap team will manage coordination once the seller responds.",
       data: {
         id: inquiryId,
         listingId: listing.id,
         sellerName: listing.ownerName,
         status: "pending",
+        sellerResponse: "pending",
+        adminStatus: "pending",
+        coordinationStatus: "awaiting_seller_response",
         createdAt: now
       }
     });
@@ -255,14 +302,18 @@ buyRouter.post("/inquiries", (req: Request, res: Response) => {
 });
 
 // ==========================================
-// 4. View My Sent Inquiries (Buyer's Requests)
+// 4. View My Sent Inquiries (Buyer's Requests - Privacy Protected)
 // ==========================================
 buyRouter.get("/my-inquiries", (req: Request, res: Response) => {
   try {
     const buyerId = req.user!.id;
 
     const rows = db.prepare(`
-      SELECT i.*, 
+      SELECT i.id, i.listingId, i.offerAmount, i.message, i.status,
+             i.sellerResponse, i.sellerRespondedAt,
+             i.adminStatus, i.adminReviewedAt,
+             i.coordinationStatus, i.siteVisitDate, i.siteVisitLocation, i.siteVisitNotes,
+             i.createdAt, i.updatedAt,
              l.title as listingTitle,
              l.propertyType as listingPropertyType,
              l.district as listingDistrict,

@@ -30,13 +30,16 @@ import {
   ExternalLink,
   Phone,
   Mail,
-  Info
+  Info,
+  ShoppingBag
 } from "lucide-react";
 import { DashboardLayout, type NavItem } from "../components/DashboardLayout.js";
 import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import { PropertyCard, formatCurrency } from "../components/PropertyCard.js";
 import { BrokerDetailModal } from "../components/BrokerDetailModal.js";
+import { UserDetailModal } from "../components/UserDetailModal.js";
+import { getPurchaseInterestStatusMeta, getExchangeCoordStatusLabel } from "../utils/statusLabels.js";
 import type { Listing, User } from "../types.js";
 
 export const AdminDashboardPage: React.FC = () => {
@@ -61,8 +64,23 @@ export const AdminDashboardPage: React.FC = () => {
   const [listings, setListings] = useState<Listing[]>([]);
   const [listingStatusFilter, setListingStatusFilter] = useState<string>("all");
 
-  // Activity logs tab state
-  const [activityLogs, setActivityLogs] = useState<any[]>([]);
+  // Users detail modal state
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+
+  // Purchase Interests Coordination State
+  const [purchaseInterests, setPurchaseInterests] = useState<any[]>([]);
+  const [purchaseStatusFilter, setPurchaseStatusFilter] = useState<string>("all");
+  const [purchaseSearch, setPurchaseSearch] = useState<string>("");
+  const [selectedPurchase, setSelectedPurchase] = useState<any | null>(null);
+  const [purchaseCoordModalOpen, setPurchaseCoordModalOpen] = useState(false);
+  const [purchaseCoordTab, setPurchaseCoordTab] = useState<"status" | "site_visit" | "notes" | "timeline">("status");
+  const [purchaseNewStatus, setPurchaseNewStatus] = useState<string>("coordination_in_progress");
+  const [purchaseStatusNotes, setPurchaseStatusNotes] = useState<string>("");
+  const [purchaseVisitDate, setPurchaseVisitDate] = useState<string>("");
+  const [purchaseVisitLocation, setPurchaseVisitLocation] = useState<string>("");
+  const [purchaseVisitNotes, setPurchaseVisitNotes] = useState<string>("");
+  const [purchaseNote, setPurchaseNote] = useState<string>("");
+  const [submittingPurchase, setSubmittingPurchase] = useState(false);
 
   // Action feedback
   const [feedback, setFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -106,12 +124,12 @@ export const AdminDashboardPage: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [m, u, b, l, a, ex, notifs] = await Promise.all([
+      const [m, u, b, l, pi, ex, notifs] = await Promise.all([
         api.getAdminMetrics().catch(() => null),
         api.getAdminUsers({ role: userRoleFilter === "all" ? undefined : userRoleFilter, search: userSearch || undefined }).catch(() => []),
         api.getAdminBrokers({ status: brokerStatusFilter === "all" ? undefined : brokerStatusFilter }).catch(() => []),
         api.getListings({ status: listingStatusFilter === "all" ? undefined : listingStatusFilter }).catch(() => []),
-        api.getActivityLogs({ limit: 50 }).catch(() => []),
+        api.getAdminPurchaseInterests({ status: purchaseStatusFilter === "all" ? undefined : purchaseStatusFilter, search: purchaseSearch || undefined }).catch(() => []),
         api.getAdminAcceptedExchanges({ status: exchangeStatusFilter === "all" ? undefined : exchangeStatusFilter, search: exchangeSearch || undefined }).catch(() => []),
         api.getAdminNotifications().catch(() => ({ data: [], unreadCount: 0 }))
       ]);
@@ -120,7 +138,7 @@ export const AdminDashboardPage: React.FC = () => {
       setUserList(u);
       setBrokerList(b);
       setListings(l);
-      setActivityLogs(a);
+      setPurchaseInterests(pi);
       setAcceptedExchanges(ex);
       setNotifications(notifs.data || []);
       setUnreadNotifs(notifs.unreadCount || 0);
@@ -135,7 +153,7 @@ export const AdminDashboardPage: React.FC = () => {
     if (isAdmin) {
       loadData();
     }
-  }, [isAdmin, userRoleFilter, brokerStatusFilter, listingStatusFilter, exchangeStatusFilter]);
+  }, [isAdmin, userRoleFilter, brokerStatusFilter, listingStatusFilter, exchangeStatusFilter, purchaseStatusFilter]);
 
   const handleToggleUserStatus = async (user: User) => {
     const newStatus = user.status === "active" ? "suspended" : "active";
@@ -178,7 +196,108 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   const pendingBrokerCount = brokerList.filter((b) => b.status === "pending").length;
-  const awaitingCoordCount = metrics?.exchanges?.awaitingCoordination || 0;
+  const awaitingCoordCount = metrics?.exchanges?.awaitingCoordination ?? acceptedExchanges.filter((e) => e.coordinationStatus === "awaiting_coordination").length;
+  const pendingPurchaseReviewCount = metrics?.purchaseInterests?.awaitingAdminReview ?? purchaseInterests.filter((p) => p.sellerResponse === "accepted" && p.adminStatus === "pending").length;
+
+  const handleQuickExchangeStatus = async (exchangeId: string, status: string) => {
+    setSubmittingCoord(true);
+    try {
+      const res = await api.updateExchangeCoordinationStatus(exchangeId, status);
+      setFeedback({ message: res.message, type: "success" });
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "Failed to update exchange status", type: "error" });
+    } finally {
+      setSubmittingCoord(false);
+    }
+  };
+
+  const handleOpenPurchaseCoord = (interest: any) => {
+    setSelectedPurchase(interest);
+    setPurchaseNewStatus(
+      interest.coordinationStatus === "awaiting_admin_review" || interest.coordinationStatus === "awaiting_seller_response"
+        ? "coordination_in_progress"
+        : interest.coordinationStatus || "coordination_in_progress"
+    );
+    setPurchaseStatusNotes("");
+    setPurchaseVisitDate(interest.siteVisitDate ? interest.siteVisitDate.slice(0, 16) : "");
+    setPurchaseVisitLocation(interest.siteVisitLocation || "");
+    setPurchaseVisitNotes(interest.siteVisitNotes || "");
+    setPurchaseNote("");
+    setPurchaseCoordTab("status");
+    setPurchaseCoordModalOpen(true);
+  };
+
+  const handleReviewPurchaseInterest = async (id: string, action: "approve" | "reject", notes?: string) => {
+    setSubmittingPurchase(true);
+    try {
+      const res = await api.reviewPurchaseInterest(id, { action, notes });
+      setFeedback({ message: res.message, type: "success" });
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "Failed to review purchase interest", type: "error" });
+    } finally {
+      setSubmittingPurchase(false);
+    }
+  };
+
+  const handleUpdatePurchaseCoord = async () => {
+    if (!selectedPurchase) return;
+    setSubmittingPurchase(true);
+    try {
+      const res = await api.updatePurchaseCoordination(selectedPurchase.id, {
+        coordinationStatus: purchaseNewStatus,
+        notes: purchaseStatusNotes || undefined
+      });
+      setFeedback({ message: res.message, type: "success" });
+      setPurchaseCoordModalOpen(false);
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "Failed to update purchase coordination", type: "error" });
+    } finally {
+      setSubmittingPurchase(false);
+    }
+  };
+
+  const handleSchedulePurchaseVisit = async () => {
+    if (!selectedPurchase || !purchaseVisitDate) {
+      setFeedback({ message: "Please specify a site visit date and time.", type: "error" });
+      return;
+    }
+    setSubmittingPurchase(true);
+    try {
+      const res = await api.schedulePurchaseSiteVisit(selectedPurchase.id, {
+        siteVisitDate: purchaseVisitDate,
+        siteVisitLocation: purchaseVisitLocation,
+        siteVisitNotes: purchaseVisitNotes
+      });
+      setFeedback({ message: res.message, type: "success" });
+      setPurchaseCoordModalOpen(false);
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ message: err.message || "Failed to schedule purchase site visit", type: "error" });
+    } finally {
+      setSubmittingPurchase(false);
+    }
+  };
+
+  const handleAddPurchaseNote = async () => {
+    if (!selectedPurchase || !purchaseNote.trim()) return;
+    setSubmittingPurchase(true);
+    try {
+      const res = await api.addPurchaseCoordinationNote(selectedPurchase.id, purchaseNote);
+      setFeedback({ message: res.message, type: "success" });
+      setPurchaseNote("");
+      const updated = await api.getAdminPurchaseInterests();
+      setPurchaseInterests(updated);
+      const found = updated.find((p: any) => p.id === selectedPurchase.id);
+      if (found) setSelectedPurchase(found);
+    } catch (err: any) {
+      setFeedback({ message: err.message || "Failed to add purchase note", type: "error" });
+    } finally {
+      setSubmittingPurchase(false);
+    }
+  };
 
   const handleOpenCoordination = (exchange: any) => {
     setSelectedExchange(exchange);
@@ -262,10 +381,22 @@ export const AdminDashboardPage: React.FC = () => {
     { id: "users", label: "Users", icon: Users },
     { id: "brokers", label: "Broker Applications", icon: ShieldCheck, badge: pendingBrokerCount > 0 ? pendingBrokerCount : undefined },
     { id: "listings", label: "Property Listings", icon: Building2 },
+    { id: "inquiries", label: "Purchase Interests", icon: ShoppingBag, badge: pendingPurchaseReviewCount > 0 ? pendingPurchaseReviewCount : undefined },
     { id: "proposals", label: "Accepted Exchanges", icon: ArrowLeftRight, badge: awaitingCoordCount > 0 ? awaitingCoordCount : undefined },
-    { id: "activity", label: "Platform Activity", icon: Activity },
     { id: "settings", label: "Settings", icon: Settings }
   ];
+
+  const handleAdminNotifClick = (n: any) => {
+    setShowNotifMenu(false);
+    const titleLower = `${n.title || ""} ${n.type || ""}`.toLowerCase();
+    if (titleLower.includes("purchase") || titleLower.includes("inquiry") || titleLower.includes("buyer") || n.link === "/admin?tab=inquiries") {
+      setActiveTab("inquiries");
+    } else if (titleLower.includes("broker") || n.link === "/admin?tab=brokers") {
+      setActiveTab("brokers");
+    } else {
+      setActiveTab("proposals");
+    }
+  };
 
   const adminHeaderNotification = (
     <div className="relative">
@@ -301,7 +432,12 @@ export const AdminDashboardPage: React.FC = () => {
           ) : (
             <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto py-1">
               {notifications.slice(0, 8).map((n) => (
-                <div key={n.id} className={`py-2 space-y-0.5 ${!n.isRead ? "bg-blue-50/40 p-1.5 rounded" : ""}`}>
+                <button
+                  type="button"
+                  key={n.id}
+                  onClick={() => handleAdminNotifClick(n)}
+                  className={`w-full text-left py-2 space-y-0.5 hover:bg-slate-50 px-1.5 rounded transition-colors ${!n.isRead ? "bg-blue-50/40" : ""}`}
+                >
                   <div className="font-semibold text-slate-900 flex items-center justify-between">
                     <span>{n.title}</span>
                     {!n.isRead && <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />}
@@ -310,7 +446,7 @@ export const AdminDashboardPage: React.FC = () => {
                   <div className="text-[10px] text-slate-400 mt-0.5">
                     {new Date(n.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -456,34 +592,62 @@ export const AdminDashboardPage: React.FC = () => {
                 )}
               </div>
 
-              {/* System Audit Preview */}
+              {/* Purchase & Exchange Coordination Queue Preview */}
               <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div className="flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-blue-600" />
-                    <h3 className="text-sm font-bold text-slate-900">Recent Platform Activity</h3>
+                    <ShoppingBag className="w-4 h-4 text-blue-600" />
+                    <h3 className="text-sm font-bold text-slate-900">Purchase & Exchange Coordination Queue</h3>
                   </div>
                   <button
-                    onClick={() => setActiveTab("activity")}
+                    onClick={() => setActiveTab("inquiries")}
                     className="text-xs font-bold text-blue-600 hover:text-blue-800"
                   >
-                    View All Logs
+                    Purchase Queue ({purchaseInterests.length})
                   </button>
                 </div>
 
-                <div className="divide-y divide-slate-100">
-                  {activityLogs.slice(0, 4).map((log) => (
-                    <div key={log.id} className="py-2 flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-bold text-slate-800 capitalize">{log.action.replace(/_/g, " ")}</span>
-                        <div className="text-[11px] text-slate-400">By {log.performedBy} on #{log.entityId}</div>
+                {purchaseInterests.length === 0 && acceptedExchanges.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-slate-400">
+                    No active purchase interests or accepted exchanges awaiting coordination.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {purchaseInterests.slice(0, 3).map((pi) => {
+                      const st = getPurchaseInterestStatusMeta(pi);
+                      return (
+                        <div key={pi.id} className="py-2.5 flex items-center justify-between gap-2 text-xs">
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-900 truncate">{pi.listingTitle}</div>
+                            <div className="text-[11px] text-slate-500 truncate">
+                              Buyer: {pi.buyerName} • Seller: {pi.sellerName}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setActiveTab("inquiries")}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border shrink-0 ${st.badgeClass}`}
+                          >
+                            {st.label}
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {acceptedExchanges.slice(0, 2).map((ex) => (
+                      <div key={ex.id} className="py-2.5 flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-900 truncate">Swap {ex.ref}</div>
+                          <div className="text-[11px] text-slate-500 truncate">{ex.explanation}</div>
+                        </div>
+                        <button
+                          onClick={() => setActiveTab("proposals")}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0"
+                        >
+                          {getExchangeCoordStatusLabel(ex.coordinationStatus)}
+                        </button>
                       </div>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {new Date(log.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -532,10 +696,14 @@ export const AdminDashboardPage: React.FC = () => {
                     return (
                       <tr key={u.id} className="hover:bg-slate-50/60">
                         <td className="px-4 py-3">
-                          <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                            {u.name}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedUserId(u.id)}
+                            className="font-bold text-slate-900 hover:text-blue-600 flex items-center gap-1.5 text-left transition-colors"
+                          >
+                            <span>{u.name}</span>
                             {isSelf && <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.2 rounded font-bold">You</span>}
-                          </div>
+                          </button>
                           <div className="text-[11px] text-slate-500">{u.email}</div>
                         </td>
                         <td className="px-4 py-3">
@@ -565,24 +733,34 @@ export const AdminDashboardPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-slate-600 font-mono text-[11px]">
-                          {u.phone || "—"}
+                          {u.phone || "Not provided"}
                         </td>
                         <td className="px-4 py-3 text-slate-500 text-[11px]">
                           {new Date(u.createdAt).toLocaleDateString()}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {!isSelf && (
+                          <div className="inline-flex items-center gap-1.5 justify-end">
                             <button
-                              onClick={() => handleToggleUserStatus(u)}
-                              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-colors ${
-                                u.status === "active"
-                                  ? "bg-slate-100 text-slate-700 hover:bg-red-50 hover:text-red-700 border border-slate-200"
-                                  : "bg-emerald-600 text-white hover:bg-emerald-700"
-                              }`}
+                              type="button"
+                              onClick={() => setSelectedUserId(u.id)}
+                              className="px-2.5 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg font-bold text-[11px] inline-flex items-center gap-1 transition-colors"
                             >
-                              {u.status === "active" ? "Suspend" : "Activate"}
+                              <Eye className="w-3.5 h-3.5 text-slate-500" />
+                              <span>View Details</span>
                             </button>
-                          )}
+                            {!isSelf && (
+                              <button
+                                onClick={() => handleToggleUserStatus(u)}
+                                className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-colors ${
+                                  u.status === "active"
+                                    ? "bg-slate-100 text-slate-700 hover:bg-red-50 hover:text-red-700 border border-slate-200"
+                                    : "bg-emerald-600 text-white hover:bg-emerald-700"
+                                }`}
+                              >
+                                {u.status === "active" ? "Suspend" : "Activate"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -764,12 +942,6 @@ export const AdminDashboardPage: React.FC = () => {
 
               <div className="flex items-center gap-2.5 shrink-0">
                 <button
-                  onClick={() => navigate("/proposals")}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
-                >
-                  Proposals Explorer
-                </button>
-                <button
                   onClick={loadData}
                   className="inline-flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
                 >
@@ -784,10 +956,12 @@ export const AdminDashboardPage: React.FC = () => {
               <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
                 {[
                   { id: "all", label: "All Accepted", count: acceptedExchanges.length },
-                  { id: "awaiting_coordination", label: "Awaiting Action", count: acceptedExchanges.filter((e) => e.coordinationStatus === "awaiting_coordination").length },
+                  { id: "awaiting_coordination", label: "Awaiting Admin Action", count: acceptedExchanges.filter((e) => e.coordinationStatus === "awaiting_coordination").length },
+                  { id: "coordination_in_progress", label: "Coordination in Progress", count: acceptedExchanges.filter((e) => e.coordinationStatus === "coordination_in_progress").length },
+                  { id: "site_visit_pending", label: "Site Visit Pending", count: acceptedExchanges.filter((e) => e.coordinationStatus === "site_visit_pending").length },
                   { id: "site_visit_scheduled", label: "Site Visit Scheduled", count: acceptedExchanges.filter((e) => e.coordinationStatus === "site_visit_scheduled").length },
-                  { id: "coordination_in_progress", label: "In Progress", count: acceptedExchanges.filter((e) => e.coordinationStatus === "coordination_in_progress").length },
-                  { id: "completed", label: "Completed", count: acceptedExchanges.filter((e) => e.coordinationStatus === "completed" || e.coordinationStatus === "closed").length }
+                  { id: "legal_review_in_progress", label: "Exchange Process in Progress", count: acceptedExchanges.filter((e) => e.coordinationStatus === "legal_review_in_progress").length },
+                  { id: "closed", label: "Closed", count: acceptedExchanges.filter((e) => e.coordinationStatus === "closed" || e.coordinationStatus === "completed").length }
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -863,17 +1037,26 @@ export const AdminDashboardPage: React.FC = () => {
                             <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-200/80 text-slate-700">
                               {item.partyCount === 2 ? "2-Party Direct Exchange" : "3-Party Circular Exchange"}
                             </span>
-                            <span className={`text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full border ${badgeClass}`}>
-                              {item.coordinationStatus.replace(/_/g, " ")}
+                            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${badgeClass}`}>
+                              {getExchangeCoordStatusLabel(item.coordinationStatus)}
                             </span>
                           </div>
                           <h3 className="text-sm font-bold text-slate-900">{item.explanation}</h3>
                         </div>
 
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-slate-400">
-                            Accepted: {new Date(item.acceptedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-slate-500 mr-1">
+                            Unanimously Accepted: {new Date(item.enteredQueueAt || item.acceptedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                           </span>
+                          {item.coordinationStatus === "awaiting_coordination" && (
+                            <button
+                              disabled={submittingCoord}
+                              onClick={() => handleQuickExchangeStatus(item.id, "coordination_in_progress")}
+                              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                            >
+                              Start Coordination
+                            </button>
+                          )}
                           <button
                             onClick={() => handleOpenCoordination(item)}
                             className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
@@ -881,6 +1064,15 @@ export const AdminDashboardPage: React.FC = () => {
                             <Calendar className="w-3.5 h-3.5" />
                             <span>Manage Coordination</span>
                           </button>
+                          {item.coordinationStatus !== "closed" && (
+                            <button
+                              disabled={submittingCoord}
+                              onClick={() => handleQuickExchangeStatus(item.id, "closed")}
+                              className="px-3 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold transition-colors"
+                            >
+                              Close Exchange
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -920,6 +1112,11 @@ export const AdminDashboardPage: React.FC = () => {
                                   <div className="text-[11px] text-slate-500 font-mono">
                                     Asset #{p.listingId} ({p.givesPropertyType.replace(/_/g, " ")})
                                   </div>
+                                  {p.respondedAt && (
+                                    <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">
+                                      Accepted {new Date(p.respondedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                                    </div>
+                                  )}
                                 </div>
 
                                 <div className="col-span-3 text-slate-600 space-y-0.5">
@@ -1214,26 +1411,385 @@ export const AdminDashboardPage: React.FC = () => {
         )}
 
         {/* ============================================================ */}
-        {/* TAB 6: ACTIVITY LOGS */}
+        {/* TAB 6: PURCHASE INTERESTS & COORDINATION */}
         {/* ============================================================ */}
-        {activeTab === "activity" && (
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-5 space-y-3">
-            <h3 className="text-base font-bold text-slate-900">Platform Audit Trail & Security Events</h3>
-            <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
-              {activityLogs.map((log) => (
-                <div key={log.id} className="py-2.5 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-bold text-slate-800">{log.action.replace(/_/g, " ")}</span>
-                    <span className="ml-2 font-mono text-[11px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
-                      #{log.entityId}
-                    </span>
-                    <div className="text-[11px] text-slate-500">Performed by {log.performedBy}</div>
-                  </div>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {new Date(log.timestamp).toLocaleString()}
+        {activeTab === "inquiries" && (
+          <div className="space-y-6">
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold uppercase tracking-wider">
+                    Intermediary Purchase Operations
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">
+                    {purchaseInterests.length} Purchase Interests
                   </span>
                 </div>
-              ))}
+                <h2 className="text-xl font-bold tracking-tight text-slate-900">
+                  Purchase Interests & Sales Coordination
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Review buyer inquiries, enforce seller consent before coordination approval, schedule privacy-protected site visits, and maintain operational timelines.
+                </p>
+              </div>
+              <button
+                onClick={loadData}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
+                <span>Refresh Interests</span>
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+                {[
+                  { id: "all", label: "All Interests", count: purchaseInterests.length },
+                  { id: "awaiting_seller_response", label: "Awaiting Seller", count: purchaseInterests.filter((p) => (p.coordinationStatus || "awaiting_seller_response") === "awaiting_seller_response").length },
+                  { id: "awaiting_admin_review", label: "Awaiting Admin Review", count: purchaseInterests.filter((p) => p.coordinationStatus === "awaiting_admin_review").length },
+                  { id: "coordination_in_progress", label: "Coordination in Progress", count: purchaseInterests.filter((p) => p.coordinationStatus === "coordination_in_progress" || p.coordinationStatus === "awaiting_admin_coordination").length },
+                  { id: "site_visit_scheduled", label: "Site Visit Scheduled", count: purchaseInterests.filter((p) => p.coordinationStatus === "site_visit_scheduled").length },
+                  { id: "purchase_process_in_progress", label: "Purchase in Progress", count: purchaseInterests.filter((p) => p.coordinationStatus === "purchase_process_in_progress").length },
+                  { id: "closed", label: "Closed", count: purchaseInterests.filter((p) => p.coordinationStatus === "closed" || p.sellerResponse === "declined" || p.adminStatus === "rejected").length }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setPurchaseStatusFilter(tab.id)}
+                    className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                      purchaseStatusFilter === tab.id
+                        ? "bg-slate-900 text-white shadow-xs"
+                        : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                      purchaseStatusFilter === tab.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
+                    }`}>
+                      {tab.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative min-w-[200px]">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Filter buyer, seller or property..."
+                  value={purchaseSearch}
+                  onChange={(e) => setPurchaseSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+            </div>
+
+            {purchaseInterests.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-xs space-y-2">
+                <ShoppingBag className="w-9 h-9 text-slate-300 mx-auto" />
+                <h3 className="text-base font-bold text-slate-900">No Purchase Interests Matching Filter</h3>
+                <p className="text-xs text-slate-500">
+                  Buyer inquiries and mutual sale interests coordinated by Asset Swap appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {purchaseInterests.map((pi) => {
+                  const st = getPurchaseInterestStatusMeta(pi);
+                  const sellerAccepted = pi.sellerResponse === "accepted";
+                  return (
+                    <div key={pi.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                      <div className="bg-slate-50 border-b border-slate-200 p-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-xs font-bold text-blue-700 bg-white border border-slate-200 px-2 py-0.5 rounded">
+                              Asset #{pi.listingId}
+                            </span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${st.badgeClass}`}>
+                              {st.label}
+                            </span>
+                          </div>
+                          <h3 className="text-sm font-bold text-slate-900">
+                            {pi.listingTitle} • {pi.listingLocality}, {pi.listingDistrict}
+                          </h3>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          {sellerAccepted && pi.adminStatus === "pending" && (
+                            <button
+                              disabled={submittingPurchase}
+                              onClick={() => handleReviewPurchaseInterest(pi.id, "approve")}
+                              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs"
+                            >
+                              Approve Coordination
+                            </button>
+                          )}
+                          {pi.adminStatus === "pending" && pi.sellerResponse !== "declined" && (
+                            <button
+                              disabled={submittingPurchase}
+                              onClick={() => handleReviewPurchaseInterest(pi.id, "reject")}
+                              className="px-3 py-2 border border-red-200 bg-white text-red-700 hover:bg-red-50 rounded-xl text-xs font-bold"
+                            >
+                              Decline Request
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleOpenPurchaseCoord(pi)}
+                            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5"
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>Manage Coordination</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="p-4 sm:px-6 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Buyer (Staff Only)</span>
+                          <div className="font-bold text-slate-900">{pi.buyerName}</div>
+                          <div className="text-[11px] text-slate-600 flex items-center gap-1">
+                            <Mail className="w-3 h-3 text-slate-400" />
+                            <span>{pi.buyerEmail || "Not provided"}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-600 flex items-center gap-1 font-mono">
+                            <Phone className="w-3 h-3 text-slate-400" />
+                            <span>{pi.buyerPhone || "Not provided"}</span>
+                          </div>
+                        </div>
+
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Seller (Staff Only)</span>
+                          <div className="font-bold text-slate-900">{pi.sellerName}</div>
+                          <div className="text-[11px] text-slate-600 flex items-center gap-1">
+                            <Mail className="w-3 h-3 text-slate-400" />
+                            <span>{pi.sellerEmail || "Not provided"}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-600 flex items-center gap-1 font-mono">
+                            <Phone className="w-3 h-3 text-slate-400" />
+                            <span>{pi.sellerPhone || "Not provided"}</span>
+                          </div>
+                        </div>
+
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Terms & Consent</span>
+                          <div>
+                            Offer: <strong className="text-emerald-700">{pi.offerAmount ? formatCurrency(pi.offerAmount) : "Not specified"}</strong>
+                          </div>
+                          <div>
+                            Asking: <strong>{pi.askingPrice ? formatCurrency(pi.askingPrice) : formatCurrency(pi.reviewedValue || pi.ownerDeclaredValue || 0)}</strong>
+                          </div>
+                          <div className="text-[11px] text-slate-600">
+                            Seller Response: <strong className="capitalize">{pi.sellerResponse || "pending"}</strong>
+                          </div>
+                          {pi.siteVisitDate && (
+                            <div className="text-[11px] text-purple-700 font-semibold">
+                              Visit: {new Date(pi.siteVisitDate).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PURCHASE COORDINATION MODAL */}
+        {purchaseCoordModalOpen && selectedPurchase && (
+          <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden my-8">
+              <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
+                <div>
+                  <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded">
+                    Purchase Interest • Asset #{selectedPurchase.listingId}
+                  </span>
+                  <h3 className="text-base font-bold text-white mt-1">
+                    {selectedPurchase.listingTitle} ({selectedPurchase.buyerName} ↔ {selectedPurchase.sellerName})
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setPurchaseCoordModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex border-b border-slate-200 bg-slate-50 px-5 pt-3 gap-2 text-xs font-bold">
+                {[
+                  { id: "status", label: "Coordination Status", icon: CheckCircle2 },
+                  { id: "site_visit", label: "Schedule Site Visit", icon: Calendar },
+                  { id: "notes", label: "Staff Notes", icon: MessageSquare },
+                  { id: "timeline", label: "Timeline & Audit", icon: FileText }
+                ].map((t) => {
+                  const Icon = t.icon;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => setPurchaseCoordTab(t.id as any)}
+                      className={`flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-all ${
+                        purchaseCoordTab === t.id
+                          ? "border-blue-600 text-blue-600"
+                          : "border-transparent text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span>{t.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="p-6 space-y-4">
+                {selectedPurchase.sellerResponse !== "accepted" && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                    The seller has not accepted this purchase interest yet (current seller response: <strong>{selectedPurchase.sellerResponse || "pending"}</strong>). Coordination cannot advance until seller consent is recorded.
+                  </div>
+                )}
+
+                {purchaseCoordTab === "status" && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Purchase Coordination Status
+                      </label>
+                      <select
+                        value={purchaseNewStatus}
+                        onChange={(e) => setPurchaseNewStatus(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      >
+                        <option value="awaiting_admin_coordination">Awaiting Admin Coordination</option>
+                        <option value="coordination_in_progress">Coordination in Progress</option>
+                        <option value="site_visit_pending">Site Visit Pending</option>
+                        <option value="site_visit_scheduled">Site Visit Scheduled</option>
+                        <option value="purchase_process_in_progress">Purchase Process in Progress</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Coordination Remarks (Optional)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={purchaseStatusNotes}
+                        onChange={(e) => setPurchaseStatusNotes(e.target.value)}
+                        placeholder="Record verification checks or coordination remarks..."
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => setPurchaseCoordModalOpen(false)}
+                        className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        disabled={submittingPurchase || selectedPurchase.sellerResponse !== "accepted"}
+                        onClick={handleUpdatePurchaseCoord}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
+                      >
+                        {submittingPurchase ? "Saving..." : "Save Coordination Status"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {purchaseCoordTab === "site_visit" && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Site Visit Date & Time *</label>
+                      <input
+                        type="datetime-local"
+                        value={purchaseVisitDate}
+                        onChange={(e) => setPurchaseVisitDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Inspection Meeting Location</label>
+                      <input
+                        type="text"
+                        value={purchaseVisitLocation}
+                        onChange={(e) => setPurchaseVisitLocation(e.target.value)}
+                        placeholder="Property address / inspection landmark"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Inspection Instructions (Optional)</label>
+                      <textarea
+                        rows={2}
+                        value={purchaseVisitNotes}
+                        onChange={(e) => setPurchaseVisitNotes(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => setPurchaseCoordModalOpen(false)}
+                        className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        disabled={submittingPurchase || selectedPurchase.sellerResponse !== "accepted"}
+                        onClick={handleSchedulePurchaseVisit}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
+                      >
+                        {submittingPurchase ? "Scheduling..." : "Schedule Coordinated Site Visit"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {purchaseCoordTab === "notes" && (
+                  <div className="space-y-4">
+                    <textarea
+                      rows={3}
+                      value={purchaseNote}
+                      onChange={(e) => setPurchaseNote(e.target.value)}
+                      placeholder="Add an internal Asset Swap staff note..."
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        disabled={submittingPurchase || !purchaseNote.trim()}
+                        onClick={handleAddPurchaseNote}
+                        className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold disabled:opacity-50"
+                      >
+                        Add Staff Note
+                      </button>
+                    </div>
+                    {selectedPurchase.coordinationNotes && (
+                      <div className="p-3 bg-slate-50 rounded-lg text-xs text-slate-700 whitespace-pre-wrap border border-slate-200">
+                        {selectedPurchase.coordinationNotes}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {purchaseCoordTab === "timeline" && (
+                  <div className="divide-y divide-slate-100 text-xs max-h-64 overflow-y-auto">
+                    {(!selectedPurchase.timeline || selectedPurchase.timeline.length === 0) ? (
+                      <p className="text-slate-400 py-6 text-center">No purchase coordination events recorded yet.</p>
+                    ) : (
+                      selectedPurchase.timeline.map((ev: any) => (
+                        <div key={ev.id} className="py-2.5 space-y-0.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-900 capitalize">{ev.action.replace(/_/g, " ")}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">{new Date(ev.createdAt).toLocaleString()}</span>
+                          </div>
+                          {ev.notes && <p className="text-slate-600 text-[11px]">{ev.notes}</p>}
+                          <div className="text-[10px] text-slate-400">By {ev.performedBy}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1289,6 +1845,13 @@ export const AdminDashboardPage: React.FC = () => {
       <BrokerDetailModal
         brokerId={selectedBrokerId}
         onClose={() => setSelectedBrokerId(null)}
+        onStatusUpdated={loadData}
+      />
+
+      {/* User Complete Profile Details Modal */}
+      <UserDetailModal
+        userId={selectedUserId}
+        onClose={() => setSelectedUserId(null)}
         onStatusUpdated={loadData}
       />
     </DashboardLayout>

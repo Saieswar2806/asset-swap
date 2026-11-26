@@ -82,7 +82,7 @@ export const SwapPage: React.FC = () => {
 
   const activeProposals = proposals.filter((p) => p.status === "proposed");
   const acceptedProposals = proposals.filter((p) => p.status === "accepted");
-  const declinedProposals = proposals.filter((p) => p.status === "declined" || p.status === "expired");
+  const declinedProposals = proposals.filter((p) => p.status === "declined");
 
   return (
     <div className="space-y-6">
@@ -186,7 +186,7 @@ export const SwapPage: React.FC = () => {
           }`}
         >
           <XCircle className="w-3.5 h-3.5" />
-          <span>Declined / Expired ({declinedProposals.length})</span>
+          <span>Declined ({declinedProposals.length})</span>
         </button>
       </div>
 
@@ -254,9 +254,9 @@ export const SwapPage: React.FC = () => {
                         Pending Consensus Voting
                       </span>
                       <h3 className="text-sm font-bold text-slate-900 mt-1.5">
-                        {prop.partyCount === 2 ? "Direct 2-Party Asset Swap" : "3-Party Circular Swap"}
+                        {prop.partyCount === 2 ? "Direct 2-Party Asset Exchange" : "3-Party Circular Exchange"}
                       </h3>
-                      <span className="text-[11px] text-slate-400">Proposal ID: {prop.id}</span>
+                      <span className="text-[11px] text-slate-400 font-mono">Ref: {prop.ref || prop.id.replace("match-", "EXP-")}</span>
                     </div>
 
                     {(() => {
@@ -302,14 +302,18 @@ export const SwapPage: React.FC = () => {
                         <span className="font-semibold text-slate-900">{p.ownerName}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-slate-500">{p.givesPropertyType?.replace("_", " ")}</span>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            prop.responses?.[p.listingId] === "accepted"
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            (p.response || prop.responses?.[p.listingId]) === "accepted"
                               ? "bg-emerald-100 text-emerald-800"
-                              : prop.responses?.[p.listingId] === "declined"
+                              : (p.response || prop.responses?.[p.listingId]) === "declined"
                               ? "bg-red-100 text-red-800"
-                              : "bg-slate-200 text-slate-700"
+                              : "bg-amber-100 text-amber-800"
                           }`}>
-                            {prop.responses?.[p.listingId] || "pending"}
+                            {(p.response || prop.responses?.[p.listingId]) === "accepted"
+                              ? "Accepted"
+                              : (p.response || prop.responses?.[p.listingId]) === "declined"
+                              ? "Declined"
+                              : "Awaiting Response"}
                           </span>
                         </div>
                       </div>
@@ -336,16 +340,16 @@ export const SwapPage: React.FC = () => {
               {acceptedProposals.map((prop) => (
                 <div key={prop.id} className="bg-white border border-emerald-200 rounded-2xl p-5 shadow-xs space-y-3">
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800">
-                      Consensus Achieved (Accepted)
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                      {prop.formalStatus || "Awaiting Admin Coordination"}
                     </span>
-                    <span className="text-xs text-slate-400">ID: {prop.id}</span>
+                    <span className="text-xs text-slate-400 font-mono">Ref: {prop.ref || prop.id.replace("match-", "EXP-")}</span>
                   </div>
                   <h4 className="text-sm font-bold text-slate-900">
-                    {prop.partyCount === 2 ? "Direct 2-Party Asset Exchange" : "3-Way Circular Trade"}
+                    {prop.partyCount === 2 ? "Direct 2-Party Asset Exchange" : "3-Way Circular Exchange"}
                   </h4>
                   <p className="text-xs text-slate-600">
-                    All participants voted ACCEPT. Properties are secured in escrow pending legal conveyancing.
+                    Accepted by all participants. The Asset Swap team is coordinating site visits and next steps directly with participating owners.
                   </p>
                 </div>
               ))}
@@ -353,25 +357,25 @@ export const SwapPage: React.FC = () => {
           )}
         </div>
       ) : (
-        /* 4. Declined / Expired */
+        /* 4. Declined */
         <div className="space-y-4">
           {declinedProposals.length === 0 ? (
             <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-xs">
               <XCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <h3 className="text-base font-bold text-slate-900">No declined or expired swaps</h3>
+              <h3 className="text-base font-bold text-slate-900">No declined swaps</h3>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               {declinedProposals.map((prop) => (
                 <div key={prop.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-2 opacity-80">
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-700">
-                      {prop.status}
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-700 border border-red-200">
+                      Exchange Declined
                     </span>
-                    <span className="text-xs text-slate-400">ID: {prop.id}</span>
+                    <span className="text-xs text-slate-400 font-mono">Ref: {prop.ref || prop.id.replace("match-", "EXP-")}</span>
                   </div>
                   <p className="text-xs text-slate-600">
-                    Proposal concluded. All participant asset locks were immediately released back to the marketplace.
+                    Proposal declined. Participating properties remain available for other exchange opportunities.
                   </p>
                 </div>
               ))}

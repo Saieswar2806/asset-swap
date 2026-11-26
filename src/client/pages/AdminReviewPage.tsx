@@ -19,6 +19,7 @@ import type { Listing } from "../types.js";
 import { formatCurrency } from "../components/PropertyCard.js";
 import { PropertyImageGallery } from "../components/PropertyImageGallery.js";
 import { BackButton } from "../components/BackButton.js";
+import { getPropertyStatusMeta } from "../utils/statusLabels.js";
 
 export const AdminReviewPage: React.FC = () => {
   const { currentUser } = useUser();
@@ -212,14 +213,8 @@ export const AdminReviewPage: React.FC = () => {
                       {formatCurrency(l.ownerDeclaredValue)}
                     </td>
                     <td className="py-3.5 px-4">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                        l.status === "reviewed"
-                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                          : l.status === "rejected"
-                          ? "bg-red-50 border-red-200 text-red-700"
-                          : "bg-amber-50 border-amber-200 text-amber-700"
-                      }`}>
-                        {l.status}
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${getPropertyStatusMeta(l.status).badgeClass}`}>
+                        {getPropertyStatusMeta(l.status).label}
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-right">

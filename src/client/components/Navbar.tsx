@@ -24,8 +24,7 @@ export const Navbar: React.FC = () => {
         { to: "/buy", label: "Buy", icon: ShoppingBag },
         { to: "/sell", label: "Sell", icon: Tag },
         { to: "/my-properties", label: "My Properties", icon: Building2 },
-        { to: "/proposals", label: "Proposals", icon: Sparkles },
-        { to: "/activity", label: "Activity", icon: Activity },
+        { to: "/proposals", label: "Swap Proposals", icon: Sparkles },
         { to: "/profile", label: "Profile", icon: UserCircle2 }
       ]
     : isBroker

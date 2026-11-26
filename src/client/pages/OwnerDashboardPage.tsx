@@ -24,6 +24,7 @@ import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import { formatCurrency } from "../components/PropertyCard.js";
 import type { Listing, Match } from "../types.js";
+import { getPropertyStatusMeta, getPurchaseInterestStatusMeta } from "../utils/statusLabels.js";
 
 export const OwnerDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -319,17 +320,14 @@ export const OwnerDashboardPage: React.FC = () => {
                     )}
                   </div>
 
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      item.status === "reviewed"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : item.status === "submitted"
-                        ? "bg-blue-100 text-blue-800"
-                        : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {item.status}
-                  </span>
+                  {(() => {
+                    const sm = getPropertyStatusMeta(item.status);
+                    return (
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${sm.pillClass}`}>
+                        {sm.shortLabel}
+                      </span>
+                    );
+                  })()}
                 </div>
 
                 <div>
@@ -378,20 +376,23 @@ export const OwnerDashboardPage: React.FC = () => {
             <p className="text-xs text-slate-400 py-6 text-center">No buyer inquiries received yet.</p>
           ) : (
             <div className="divide-y divide-slate-100 text-xs">
-              {mySellInquiries.slice(0, 3).map((inq) => (
-                <div key={inq.id} className="py-2.5 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-900">{inq.buyerName}</span>
-                    <span className="text-[10px] font-bold uppercase bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
-                      {inq.status}
-                    </span>
+              {mySellInquiries.slice(0, 3).map((inq) => {
+                const im = getPurchaseInterestStatusMeta(inq);
+                return (
+                  <div key={inq.id} className="py-2.5 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-900">{inq.buyerName}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${im.badgeClass}`}>
+                        {im.label}
+                      </span>
+                    </div>
+                    <p className="text-slate-500 truncate">"{inq.message}"</p>
+                    <div className="text-[11px] text-slate-400">
+                      Property: {inq.listingTitle || inq.listingLocality}
+                    </div>
                   </div>
-                  <p className="text-slate-500 truncate">"{inq.message}"</p>
-                  <div className="text-[11px] text-slate-400">
-                    Property: {inq.listingTitle || inq.listingLocality}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -412,20 +413,23 @@ export const OwnerDashboardPage: React.FC = () => {
             <p className="text-xs text-slate-400 py-6 text-center">You have not sent any purchase inquiries yet.</p>
           ) : (
             <div className="divide-y divide-slate-100 text-xs">
-              {myBuyInquiries.slice(0, 3).map((inq) => (
-                <div key={inq.id} className="py-2.5 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-900">{inq.listingTitle || inq.listingLocality}</span>
-                    <span className="text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
-                      {inq.status}
-                    </span>
+              {myBuyInquiries.slice(0, 3).map((inq) => {
+                const im = getPurchaseInterestStatusMeta(inq);
+                return (
+                  <div key={inq.id} className="py-2.5 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-900">{inq.listingTitle || inq.listingLocality}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${im.badgeClass}`}>
+                        {im.label}
+                      </span>
+                    </div>
+                    <p className="text-slate-500 truncate">"{inq.message}"</p>
+                    <div className="text-[11px] text-slate-400">
+                      Seller: {inq.sellerName || "Verified Owner"} • Managed by Asset Swap
+                    </div>
                   </div>
-                  <p className="text-slate-500 truncate">"{inq.message}"</p>
-                  <div className="text-[11px] text-slate-400">
-                    Seller: {inq.sellerName || "Verified Owner"}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

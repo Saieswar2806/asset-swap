@@ -124,13 +124,13 @@ export const MatchDetailsPage: React.FC = () => {
   const isDirect = match.partyCount === 2;
 
   const statusConfig: Record<string, { bg: string; text: string; icon: React.FC<{ className?: string }> }> = {
-    proposed: { bg: "bg-blue-100 text-blue-800 border-blue-300", text: "Active Proposal (Awaiting Responses)", icon: Clock },
-    accepted: { bg: "bg-emerald-100 text-emerald-800 border-emerald-300", text: "Unanimously Accepted", icon: CheckCircle2 },
-    declined: { bg: "bg-red-100 text-red-800 border-red-300", text: "Proposal Declined (Locks Released)", icon: XCircle },
-    expired: { bg: "bg-slate-100 text-slate-700 border-slate-300", text: "Expired", icon: Clock }
+    available: { bg: "bg-slate-100 text-slate-700 border-slate-300", text: "Compatible Exchange Match (Not Yet Proposed)", icon: Sparkles },
+    proposed: { bg: "bg-blue-100 text-blue-800 border-blue-300", text: "Awaiting Participant Responses", icon: Clock },
+    accepted: { bg: "bg-emerald-100 text-emerald-800 border-emerald-300", text: "Accepted by All Participants • Awaiting Admin Coordination", icon: CheckCircle2 },
+    declined: { bg: "bg-red-100 text-red-800 border-red-300", text: "Exchange Declined", icon: XCircle }
   };
 
-  const currentStatus = statusConfig[match.status] || statusConfig.proposed;
+  const currentStatus = statusConfig[match.status] || statusConfig.available;
   const StatusIcon = currentStatus.icon;
 
   return (

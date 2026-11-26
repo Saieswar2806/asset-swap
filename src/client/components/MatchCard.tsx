@@ -54,15 +54,23 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, onPropose, proposin
               </span>
               {match.status && (
                 <span
-                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
                     match.status === "proposed"
                       ? "bg-blue-100 text-blue-800"
                       : match.status === "accepted"
                       ? "bg-emerald-100 text-emerald-800"
-                      : "bg-red-100 text-red-800"
+                      : match.status === "declined"
+                      ? "bg-red-100 text-red-800"
+                      : "bg-slate-100 text-slate-700"
                   }`}
                 >
-                  {match.status === "proposed" ? "Proposal Active" : match.status === "accepted" ? "Accepted" : "Declined"}
+                  {match.status === "proposed"
+                    ? "Awaiting Responses"
+                    : match.status === "accepted"
+                    ? "Accepted by All Participants"
+                    : match.status === "declined"
+                    ? "Exchange Declined"
+                    : "Compatible Match"}
                 </span>
               )}
             </div>

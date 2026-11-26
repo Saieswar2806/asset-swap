@@ -98,7 +98,7 @@ ownerRouter.get("/listings", (req: Request, res: Response) => {
         `).get(l.id, l.id) as any;
 
         if (matchRow) {
-          let statusLabel = "Exchange Proposal Pending";
+          let statusLabel = "Awaiting Responses";
           if (matchRow.status === "proposed") {
             if (matchRow.myDecision === "pending" || !matchRow.myDecision) {
               statusLabel = "Awaiting Your Response";
@@ -108,7 +108,13 @@ ownerRouter.get("/listings", (req: Request, res: Response) => {
               statusLabel = "Exchange Declined";
             }
           } else if (matchRow.status === "accepted") {
-            statusLabel = "Exchange Accepted (Coordination in Progress)";
+            const cStatus = matchRow.coordinationStatus || "awaiting_coordination";
+            if (cStatus === "site_visit_scheduled") statusLabel = "Site Visit Scheduled";
+            else if (cStatus === "site_visit_pending") statusLabel = "Site Visit Pending";
+            else if (cStatus === "coordination_in_progress") statusLabel = "Coordination in Progress";
+            else if (cStatus === "legal_review_in_progress" || cStatus === "completed") statusLabel = "Exchange Process in Progress";
+            else if (cStatus === "closed") statusLabel = "Closed";
+            else statusLabel = "Awaiting Admin Coordination";
           }
 
           activeProposal = {

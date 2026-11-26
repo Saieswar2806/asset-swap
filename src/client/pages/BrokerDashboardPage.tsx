@@ -33,6 +33,7 @@ import {
 import { DashboardLayout, type NavItem } from "../components/DashboardLayout.js";
 import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
+import { getPropertyStatusMeta } from "../utils/statusLabels.js";
 import { formatCurrency } from "../components/PropertyCard.js";
 import { PropertyImageGallery } from "../components/PropertyImageGallery.js";
 import type { Listing, ComparableProperty, ConsentStatus, PropertyType, AreaUnit } from "../types.js";
@@ -1410,12 +1411,8 @@ export const BrokerDashboardPage: React.FC = () => {
                           }`}>
                             {s.intent || "SWAP"}
                           </span>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            s.status === "reviewed" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
-                            s.status === "rejected" ? "bg-red-50 text-red-700 border border-red-200" :
-                            "bg-amber-50 text-amber-700 border border-amber-200"
-                          }`}>
-                            {s.status}
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${getPropertyStatusMeta(s.status).badgeClass}`}>
+                            {getPropertyStatusMeta(s.status).label}
                           </span>
                         </div>
                       </div>

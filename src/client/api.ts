@@ -162,6 +162,11 @@ export const api = {
     return res.data || [];
   },
 
+  getAdminUserById: async (id: string): Promise<any> => {
+    const res = await fetchJson<ApiResponse<any>>(`/admin/users/${id}`);
+    return res.data!;
+  },
+
   updateUserStatus: async (id: string, status: "active" | "suspended" | "rejected", rejectionReason?: string): Promise<string> => {
     const res = await fetchJson<{ success: boolean; message: string }>(`/admin/users/${id}/status`, {
       method: "PATCH",
@@ -516,6 +521,55 @@ export const api = {
       body: JSON.stringify({ status })
     });
     return { message: res.message || "Status updated", data: res.data };
+  },
+
+  respondToPurchaseInterest: async (id: string, decision: "accepted" | "declined", notes?: string): Promise<{ message: string; data: any }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/sell/inquiries/${id}/respond`, {
+      method: "POST",
+      body: JSON.stringify({ decision, notes })
+    });
+    return { message: res.message || "Response submitted", data: res.data };
+  },
+
+  getAdminPurchaseInterests: async (params?: { status?: string; search?: string }): Promise<any[]> => {
+    const query = new URLSearchParams();
+    if (params?.status && params.status !== "all") query.set("status", params.status);
+    if (params?.search) query.set("search", params.search);
+    const qs = query.toString();
+    const res = await fetchJson<ApiResponse<any[]>>(`/admin/purchase-interests${qs ? `?${qs}` : ""}`);
+    return res.data || [];
+  },
+
+  reviewPurchaseInterest: async (id: string, payload: { action: "approve" | "reject"; notes?: string }): Promise<{ message: string; data: any }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/admin/purchase-interests/${id}/review`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    return { message: res.message || "Purchase interest reviewed", data: res.data };
+  },
+
+  updatePurchaseCoordination: async (id: string, payload: { coordinationStatus: string; notes?: string }): Promise<{ message: string; data: any }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/admin/purchase-interests/${id}/coordination`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    return { message: res.message || "Coordination status updated", data: res.data };
+  },
+
+  schedulePurchaseSiteVisit: async (id: string, payload: { siteVisitDate: string; siteVisitLocation?: string; siteVisitNotes?: string }): Promise<{ message: string; data: any }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/admin/purchase-interests/${id}/site-visit`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    return { message: res.message || "Site visit scheduled", data: res.data };
+  },
+
+  addPurchaseCoordinationNote: async (id: string, note: string): Promise<{ message: string }> => {
+    const res = await fetchJson<ApiResponse<any>>(`/admin/purchase-interests/${id}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ note })
+    });
+    return { message: res.message || "Note added" };
   },
 
   markListingSold: async (id: string): Promise<{ message: string }> => {

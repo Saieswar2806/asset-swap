@@ -14,6 +14,7 @@ import {
 import type { Listing } from "../types.js";
 import { getPropertyThumbnail, getPropertyTypeFallback, getPropertyImages } from "../../propertyImages.js";
 import { PropertyDetailModal } from "./PropertyDetailModal.js";
+import { getPropertyStatusMeta } from "../utils/statusLabels.js";
 
 interface PropertyCardProps {
   listing: Listing;
@@ -53,16 +54,17 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({ listing, onSelect, s
     listing.imageUrl || (meta.imageUrl as string)
   );
 
-  const statusBadges: Record<string, { bg: string; text: string; icon: React.FC<{ className?: string }> }> = {
-    reviewed: { bg: "bg-emerald-50 border-emerald-200 text-emerald-700", text: "Approved", icon: CheckCircle2 },
-    submitted: { bg: "bg-blue-50 border-blue-200 text-blue-700", text: "Under Review", icon: Clock },
-    under_review: { bg: "bg-amber-50 border-amber-200 text-amber-700", text: "Under Review", icon: Clock },
-    rejected: { bg: "bg-red-50 border-red-200 text-red-700", text: "Rejected", icon: XCircle },
-    draft: { bg: "bg-slate-50 border-slate-200 text-slate-600", text: "Draft", icon: FileText }
+  const statusIcons: Record<string, React.FC<{ className?: string }>> = {
+    reviewed: CheckCircle2,
+    submitted: Clock,
+    under_review: Clock,
+    rejected: XCircle,
+    draft: FileText
   };
 
-  const statusInfo = statusBadges[listing.status] || statusBadges.submitted;
-  const StatusIcon = statusInfo.icon;
+  const statusMeta = getPropertyStatusMeta(listing.status);
+  const StatusIcon = statusIcons[listing.status] || Clock;
+  const statusInfo = { bg: statusMeta.badgeClass, text: statusMeta.label };
 
   const handleCardClick = () => {
     if (onSelect) {

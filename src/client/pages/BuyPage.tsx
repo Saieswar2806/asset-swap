@@ -19,13 +19,15 @@ import {
   AlertCircle,
   X,
   Images,
-  Heart
+  Heart,
+  Calendar
 } from "lucide-react";
 import { api } from "../api.js";
 import { useUser } from "../context/UserContext.js";
 import { formatCurrency } from "../components/PropertyCard.js";
 import { PropertyImageGallery } from "../components/PropertyImageGallery.js";
 import { getPropertyThumbnail, getPropertyTypeFallback, getPropertyImages } from "../../propertyImages.js";
+import { getPurchaseInterestStatusMeta } from "../utils/statusLabels.js";
 import type { Listing, PropertyType } from "../types.js";
 
 const PROPERTY_TYPES: Array<{ id: string; label: string }> = [
@@ -89,9 +91,8 @@ export const BuyPage: React.FC = () => {
   // Selected Listing for Detail / Inquiry Modal
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [inquiryOffer, setInquiryOffer] = useState("");
-  const [inquiryPhone, setInquiryPhone] = useState(currentUser?.phone || "");
   const [inquiryMessage, setInquiryMessage] = useState(
-    "Hello, I am interested in purchasing this property and would like to review verification documents and schedule a physical inspection."
+    "Hello, I am interested in purchasing this property and would like to review verification documents and schedule an Admin-coordinated physical inspection."
   );
   const [inquirySubmitting, setInquirySubmitting] = useState(false);
   const [inquirySuccess, setInquirySuccess] = useState<string | null>(null);
@@ -156,8 +157,7 @@ export const BuyPage: React.FC = () => {
       const res = await api.submitBuyerInquiry({
         listingId: selectedListing.id,
         message: inquiryMessage,
-        offerAmount: inquiryOffer ? Number(inquiryOffer) : undefined,
-        buyerPhone: inquiryPhone || undefined
+        offerAmount: inquiryOffer ? Number(inquiryOffer) : undefined
       });
       setInquirySuccess(res.message);
       fetchMyInquiries();
@@ -550,39 +550,49 @@ export const BuyPage: React.FC = () => {
               </div>
             ) : (
               <div className="divide-y divide-slate-100 mt-4">
-                {myInquiries.map((inq) => (
-                  <div key={inq.id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-xs text-slate-900">{inq.listingTitle || inq.listingLocality}</span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          inq.status === "contacted"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : inq.status === "closed"
-                            ? "bg-slate-100 text-slate-600"
-                            : "bg-amber-100 text-amber-800"
-                        }`}>
-                          {inq.status}
+                {myInquiries.map((inq) => {
+                  const statusMeta = getPurchaseInterestStatusMeta(inq);
+                  return (
+                    <div key={inq.id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-xs text-slate-900">{inq.listingTitle || inq.listingLocality}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${statusMeta.badgeClass}`}>
+                            {statusMeta.label}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500 flex flex-wrap items-center gap-3">
+                          <span>Location: {inq.listingLocality}, {inq.listingDistrict}</span>
+                          {inq.offerAmount && (
+                            <span>Offer: <strong>{formatCurrency(inq.offerAmount)}</strong></span>
+                          )}
+                          <span>Submitted: {new Date(inq.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+                        </div>
+                        <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded-lg italic">
+                          "{inq.message}"
+                        </p>
+                        {inq.siteVisitDate && (
+                          <div className="p-2 bg-purple-50 border border-purple-200 rounded-lg text-[11px] text-purple-900 flex items-center gap-2">
+                            <Calendar className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                            <span>
+                              <strong>Coordinated Site Visit:</strong>{" "}
+                              {new Date(inq.siteVisitDate).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                              {inq.siteVisitLocation ? ` • ${inq.siteVisitLocation}` : ""}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="text-right shrink-0 space-y-0.5">
+                        <span className="text-[11px] text-slate-400 block">Coordinated Seller</span>
+                        <span className="text-xs font-bold text-slate-700">{inq.sellerName || "Registered Owner"}</span>
+                        <span className="text-[10px] text-slate-500 block">
+                          Direct contact kept private via Admin
                         </span>
                       </div>
-                      <div className="text-xs text-slate-500 flex items-center gap-3">
-                        <span>Location: {inq.listingLocality}, {inq.listingDistrict}</span>
-                        {inq.offerAmount && (
-                          <span>Offer: <strong>{formatCurrency(inq.offerAmount)}</strong></span>
-                        )}
-                        <span>Sent: {new Date(inq.createdAt).toLocaleDateString()}</span>
-                      </div>
-                      <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded-lg italic">
-                        "{inq.message}"
-                      </p>
                     </div>
-
-                    <div className="text-right shrink-0">
-                      <span className="text-[11px] text-slate-400 block">Owner / Seller</span>
-                      <span className="text-xs font-bold text-slate-700">{inq.sellerName || "Verified Owner"}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -654,7 +664,7 @@ export const BuyPage: React.FC = () => {
             {/* Inquiry Form */}
             <div className="pt-3 border-t border-slate-200">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 mb-2">
-                Express Purchase Interest to Seller
+                Express Purchase Interest (Coordinated via Asset Swap)
               </h4>
 
               {inquirySuccess ? (
@@ -663,7 +673,7 @@ export const BuyPage: React.FC = () => {
                   <div>
                     <span className="font-bold block">{inquirySuccess}</span>
                     <span className="text-[11px] mt-0.5 block">
-                      The property owner has received your request and can contact you directly through your registered phone or email.
+                      Private contact details are protected. The seller will review your interest and, upon mutual acceptance, the Asset Swap team will coordinate inspection and next steps.
                     </span>
                   </div>
                 </div>
@@ -676,7 +686,7 @@ export const BuyPage: React.FC = () => {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                     <div>
                       <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
                         Offer Amount (₹ Optional)
@@ -689,17 +699,11 @@ export const BuyPage: React.FC = () => {
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
                       />
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
-                        Contact Phone
-                      </label>
-                      <input
-                        type="tel"
-                        value={inquiryPhone}
-                        onChange={(e) => setInquiryPhone(e.target.value)}
-                        placeholder="+91 98450 00000"
-                        className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      />
+                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-600 flex items-start gap-2">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>
+                        Contact privacy active: your phone and email are not shared directly with sellers.
+                      </span>
                     </div>
                   </div>
 

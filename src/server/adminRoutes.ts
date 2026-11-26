@@ -29,12 +29,23 @@ adminRouter.get("/metrics", (req: Request, res: Response) => {
     const awaitingCoordination = (db.prepare("SELECT COUNT(*) as c FROM exchange_coordinations WHERE status IN ('awaiting_coordination', 'coordination_in_progress', 'site_visit_pending')").get() as { c: number })?.c || 0;
     const unreadNotifications = (db.prepare("SELECT COUNT(*) as c FROM notifications WHERE role = 'admin' AND isRead = 0").get() as { c: number })?.c || 0;
 
+    const totalInquiries = (db.prepare("SELECT COUNT(*) as c FROM buyer_inquiries").get() as { c: number })?.c || 0;
+    const awaitingSellerInq = (db.prepare("SELECT COUNT(*) as c FROM buyer_inquiries WHERE coordinationStatus = 'awaiting_seller_response'").get() as { c: number })?.c || 0;
+    const awaitingAdminInqReview = (db.prepare("SELECT COUNT(*) as c FROM buyer_inquiries WHERE sellerResponse = 'accepted' AND adminStatus = 'pending'").get() as { c: number })?.c || 0;
+    const awaitingInqCoord = (db.prepare("SELECT COUNT(*) as c FROM buyer_inquiries WHERE adminStatus = 'approved_for_coordination' AND coordinationStatus IN ('awaiting_admin_coordination', 'coordination_in_progress', 'site_visit_scheduled', 'purchase_process_in_progress')").get() as { c: number })?.c || 0;
+
     res.json({
       success: true,
       data: {
         users: { totalUsers, totalOwners, totalBrokers, pendingBrokers, activeBrokers },
         listings: { totalListings, awaitingReview, approvedListings, rejectedListings, lockedListings },
-        exchanges: { activeProposals, completedTrades, awaitingCoordination, unreadNotifications }
+        exchanges: { activeProposals, completedTrades, awaitingCoordination, unreadNotifications },
+        purchaseInterests: {
+          total: totalInquiries,
+          awaitingSellerResponse: awaitingSellerInq,
+          awaitingAdminReview: awaitingAdminInqReview,
+          awaitingCoordination: awaitingInqCoord
+        }
       }
     });
   } catch (err: unknown) {
@@ -70,6 +81,91 @@ adminRouter.get("/users", (req: Request, res: Response) => {
     const users = db.prepare(query).all(...params);
 
     res.json({ success: true, count: users.length, data: users });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+adminRouter.get("/users/:id", (req: Request, res: Response) => {
+  try {
+    const userId = String(req.params.id);
+    const user = db.prepare(`
+      SELECT id, name, email, role, status, phone, agency, licenseNumber,
+             jurisdiction, experienceYears, rejectionReason, createdAt, updatedAt
+      FROM users
+      WHERE id = ?
+    `).get(userId) as Record<string, unknown> | undefined;
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found." });
+    }
+
+    const properties = (db.prepare(`
+      SELECT l.*, r.desiredPropertyTypes, r.preferredDistricts, r.preferredLocalities,
+             r.minArea, r.minAreaUnit, r.maxCashToPay, r.maxCashToReceive
+      FROM listings l
+      LEFT JOIN exchange_requirements r ON l.id = r.listingId
+      WHERE l.ownerId = ?
+      ORDER BY l.createdAt DESC
+    `).all(userId) as unknown as DbListingRow[]).map(rowToListing);
+
+    const saleListings = properties.filter((p) => p.intent === "sell" || p.intent === "both");
+
+    const submittedProperties = user.role === "broker"
+      ? (db.prepare(`
+          SELECT l.*, r.desiredPropertyTypes, r.preferredDistricts, r.preferredLocalities,
+                 r.minArea, r.minAreaUnit, r.maxCashToPay, r.maxCashToReceive
+          FROM listings l
+          LEFT JOIN exchange_requirements r ON l.id = r.listingId
+          WHERE l.submittedByBrokerId = ?
+          ORDER BY l.createdAt DESC
+        `).all(userId) as unknown as DbListingRow[]).map(rowToListing)
+      : [];
+
+    const brokerReviews = user.role === "broker"
+      ? db.prepare(`
+          SELECT pr.id, pr.listingId, pr.reviewedValue, pr.action, pr.createdAt, l.title as listingTitle
+          FROM property_reviews pr
+          LEFT JOIN listings l ON pr.listingId = l.id
+          WHERE pr.reviewerId = ?
+          ORDER BY pr.createdAt DESC
+        `).all(userId)
+      : [];
+
+    const buyInterests = db.prepare(`
+      SELECT i.id, i.listingId, i.buyerId, i.sellerId, i.buyerName, i.offerAmount, i.message,
+             i.status, i.sellerResponse, i.adminStatus, i.coordinationStatus, i.createdAt,
+             l.title as listingTitle, l.locality as listingLocality, l.district as listingDistrict
+      FROM buyer_inquiries i
+      LEFT JOIN listings l ON i.listingId = l.id
+      WHERE i.buyerId = ? OR i.sellerId = ?
+      ORDER BY i.createdAt DESC
+    `).all(userId, userId);
+
+    const swapProposals = db.prepare(`
+      SELECT DISTINCT m.id, m.matchType, m.partyCount, m.status, m.matchScore, m.explanation, m.createdAt, m.updatedAt
+      FROM matches m
+      JOIN match_participants mp ON m.id = mp.matchId
+      WHERE mp.ownerId = ? AND m.status IN ('proposed', 'accepted', 'declined')
+      ORDER BY m.updatedAt DESC
+    `).all(userId).map((m: any) => ({
+      ...m,
+      ref: m.id.replace("match-", "EXP-")
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        ...user,
+        properties,
+        saleListings,
+        submittedProperties,
+        brokerReviews,
+        buyInterests,
+        swapProposals
+      }
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });
@@ -404,6 +500,7 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
              c.id as coordId, c.status as coordinationStatus, 
              c.siteVisitDate, c.siteVisitLocation, c.siteVisitNotes, 
              c.coordinationNotes, c.assignedAdminId, c.assignedAdminName,
+             c.createdAt as coordCreatedAt,
              c.updatedAt as coordUpdatedAt
       FROM matches m
       LEFT JOIN exchange_coordinations c ON m.id = c.matchId
@@ -412,8 +509,12 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
     const params: unknown[] = [];
 
     if (status && typeof status === "string" && status !== "all") {
-      query += " AND (c.status = ? OR (c.status IS NULL AND ? = 'awaiting_coordination'))";
-      params.push(status, status);
+      if (status === "legal_review_in_progress") {
+        query += " AND c.status IN ('legal_review_in_progress', 'completed')";
+      } else {
+        query += " AND (c.status = ? OR (c.status IS NULL AND ? = 'awaiting_coordination'))";
+        params.push(status, status);
+      }
     }
 
     query += " ORDER BY m.updatedAt DESC";
@@ -421,11 +522,13 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
     const rows = db.prepare(query).all(...params) as any[];
 
     const exchanges = rows.map((row) => {
-      // Fetch participants and link owner contact details for administrative contact
+      // Fetch participants and link owner contact details & response timestamps for administrative coordination
       const participants = db.prepare(`
-        SELECT p.*, u.email as ownerEmail, u.phone as ownerPhone
+        SELECT p.*, u.email as ownerEmail, u.phone as ownerPhone,
+               mr.decision as responseDecision, mr.respondedAt as respondedAt
         FROM match_participants p
         LEFT JOIN users u ON p.ownerId = u.id
+        LEFT JOIN match_responses mr ON p.matchId = mr.matchId AND p.listingId = mr.listingId
         WHERE p.matchId = ?
       `).all(row.id) as any[];
 
@@ -433,6 +536,8 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
         const listing = getDbListingById(p.listingId);
         return {
           ...p,
+          response: p.responseDecision || "accepted",
+          respondedAt: p.respondedAt || row.updatedAt,
           property: listing ? {
             id: listing.id,
             title: listing.title,
@@ -454,7 +559,7 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
       const timeline = db.prepare(`
         SELECT * FROM coordination_timeline 
         WHERE matchId = ? 
-        ORDER BY createdAt DESC LIMIT 10
+        ORDER BY createdAt DESC LIMIT 15
       `).all(row.id);
 
       return {
@@ -471,6 +576,7 @@ adminRouter.get("/exchanges", (req: Request, res: Response) => {
         siteVisitNotes: row.siteVisitNotes || null,
         coordinationNotes: row.coordinationNotes || null,
         assignedAdminName: row.assignedAdminName || null,
+        enteredQueueAt: row.coordCreatedAt || row.updatedAt,
         acceptedAt: row.updatedAt,
         participants: detailedParticipants,
         timeline
@@ -655,7 +761,7 @@ adminRouter.post("/exchanges/:id/site-visit", (req: Request, res: Response) => {
       for (const p of participantRows) {
         db.prepare(`
           INSERT INTO notifications (id, userId, role, title, message, type, entityId, link, createdAt)
-          VALUES (?, ?, 'owner', 'Site Visit Inspection Scheduled', ?, 'site_visit_scheduled', ?, '/exchange-progress', ?)
+          VALUES (?, ?, 'owner', 'Site Visit Inspection Scheduled', ?, 'site_visit_scheduled', ?, '/proposals', ?)
         `).run(
           `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           p.ownerId,
@@ -754,6 +860,408 @@ adminRouter.patch("/notifications/read-all", (req: Request, res: Response) => {
   try {
     db.prepare("UPDATE notifications SET isRead = 1 WHERE role = 'admin' OR userId = ?").run(req.user!.id);
     res.json({ success: true, message: "All notifications marked as read." });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// ==========================================
+// 7. Admin Purchase Interests & Transaction Coordination
+// ==========================================
+
+// List all purchase interests (Admin authorized view includes buyer & seller details)
+adminRouter.get("/purchase-interests", (req: Request, res: Response) => {
+  try {
+    const { status, search } = req.query;
+
+    let query = `
+      SELECT i.*,
+             l.title as listingTitle, l.propertyType as listingPropertyType,
+             l.district as listingDistrict, l.locality as listingLocality,
+             l.area as listingArea, l.areaUnit as listingAreaUnit,
+             l.askingPrice, l.reviewedValue, l.ownerDeclaredValue, l.imageUrl as listingImage,
+             s.name as sellerName, s.email as sellerEmail, s.phone as sellerPhone,
+             b.name as buyerAccountName, b.email as buyerAccountEmail, b.phone as buyerAccountPhone
+      FROM buyer_inquiries i
+      JOIN listings l ON i.listingId = l.id
+      LEFT JOIN users s ON i.sellerId = s.id
+      LEFT JOIN users b ON i.buyerId = b.id
+      WHERE 1=1
+    `;
+    const params: unknown[] = [];
+
+    if (status && typeof status === "string" && status !== "all") {
+      if (status === "declined_or_closed") {
+        query += " AND i.coordinationStatus IN ('declined', 'closed')";
+      } else {
+        query += " AND i.coordinationStatus = ?";
+        params.push(status);
+      }
+    }
+
+    query += " ORDER BY i.updatedAt DESC";
+    const rows = db.prepare(query).all(...params) as any[];
+
+    const interests = rows.map((r) => {
+      const timeline = db.prepare(`
+        SELECT * FROM purchase_coordination_timeline
+        WHERE inquiryId = ?
+        ORDER BY createdAt DESC LIMIT 15
+      `).all(r.id);
+
+      return {
+        ...r,
+        buyerPhone: r.buyerPhone || r.buyerAccountPhone || null,
+        buyerEmail: r.buyerEmail || r.buyerAccountEmail || null,
+        timeline
+      };
+    });
+
+    if (search && typeof search === "string" && search.trim()) {
+      const q = search.trim().toLowerCase();
+      const filtered = interests.filter((item) =>
+        item.id.toLowerCase().includes(q) ||
+        item.listingTitle?.toLowerCase().includes(q) ||
+        item.listingLocality?.toLowerCase().includes(q) ||
+        item.buyerName?.toLowerCase().includes(q) ||
+        item.sellerName?.toLowerCase().includes(q)
+      );
+      return res.json({ success: true, count: filtered.length, data: filtered });
+    }
+
+    res.json({ success: true, count: interests.length, data: interests });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Admin Review of Mutual Purchase Interest (Enforces Seller acceptance first!)
+adminRouter.post("/purchase-interests/:id/review", (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const { action, notes } = req.body;
+    const admin = req.user!;
+
+    if (!["approve", "reject"].includes(action)) {
+      return res.status(400).json({ success: false, error: "Action must be 'approve' or 'reject'." });
+    }
+
+    const inquiry = db.prepare("SELECT * FROM buyer_inquiries WHERE id = ?").get(id) as any;
+    if (!inquiry) {
+      return res.status(404).json({ success: false, error: "Purchase interest not found." });
+    }
+
+    if (action === "approve" && inquiry.sellerResponse !== "accepted") {
+      return res.status(400).json({
+        success: false,
+        error: "Cannot approve coordination: The seller must first agree to proceed with the buyer's purchase interest."
+      });
+    }
+
+    const now = new Date().toISOString();
+    const listing = getDbListingById(inquiry.listingId);
+    const listingLabel = listing?.title || inquiry.listingId;
+
+    runInTransaction(() => {
+      if (action === "approve") {
+        db.prepare(`
+          UPDATE buyer_inquiries
+          SET adminStatus = 'approved_for_coordination',
+              adminReviewedAt = ?,
+              adminNotes = ?,
+              coordinationStatus = 'awaiting_admin_coordination',
+              assignedAdminId = ?,
+              assignedAdminName = ?,
+              updatedAt = ?
+          WHERE id = ?
+        `).run(now, notes ? String(notes).trim() : null, admin.id, admin.name, now, id);
+
+        db.prepare(`
+          INSERT INTO purchase_coordination_timeline (id, inquiryId, action, notes, performedBy, performedById, createdAt)
+          VALUES (?, ?, 'admin_approved_coordination', ?, ?, ?, ?)
+        `).run(
+          `ptime-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id,
+          notes ? String(notes).trim() : "Mutual purchase interest approved for Asset Swap administrative coordination.",
+          admin.name,
+          admin.id,
+          now
+        );
+
+        db.prepare(`
+          INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+          VALUES (?, 'inquiry', ?, 'admin_approved_purchase_coordination', ?, ?, ?)
+        `).run(`log-${Date.now()}`, id, JSON.stringify({ listingId: inquiry.listingId, notes }), admin.name, now);
+
+        // Notify Buyer & Seller separately without leaking contact details
+        db.prepare(`
+          INSERT INTO notifications (id, userId, role, title, message, type, link, entityId, isRead, createdAt)
+          VALUES (?, ?, 'owner', 'Purchase Coordination Approved', ?, 'success', '/buy', ?, 0, ?)
+        `).run(
+          `notif-${Date.now()}-b`,
+          inquiry.buyerId,
+          `Mutual purchase interest for "${listingLabel}" is confirmed. Asset Swap administration will coordinate site visits and legal next steps.`,
+          id,
+          now
+        );
+
+        db.prepare(`
+          INSERT INTO notifications (id, userId, role, title, message, type, link, entityId, isRead, createdAt)
+          VALUES (?, ?, 'owner', 'Purchase Coordination Approved', ?, 'success', '/sell', ?, 0, ?)
+        `).run(
+          `notif-${Date.now()}-s`,
+          inquiry.sellerId,
+          `Mutual purchase interest for "${listingLabel}" is confirmed. Asset Swap administration will reach out to schedule a property inspection.`,
+          id,
+          now
+        );
+      } else {
+        db.prepare(`
+          UPDATE buyer_inquiries
+          SET adminStatus = 'rejected',
+              adminReviewedAt = ?,
+              adminNotes = ?,
+              coordinationStatus = 'closed',
+              status = 'closed',
+              updatedAt = ?
+          WHERE id = ?
+        `).run(now, notes ? String(notes).trim() : null, now, id);
+
+        db.prepare(`
+          INSERT INTO purchase_coordination_timeline (id, inquiryId, action, notes, performedBy, performedById, createdAt)
+          VALUES (?, ?, 'admin_rejected_coordination', ?, ?, ?, ?)
+        `).run(
+          `ptime-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id,
+          notes ? String(notes).trim() : "Purchase coordination request closed by administration.",
+          admin.name,
+          admin.id,
+          now
+        );
+
+        db.prepare(`
+          INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+          VALUES (?, 'inquiry', ?, 'admin_rejected_purchase_coordination', ?, ?, ?)
+        `).run(`log-${Date.now()}`, id, JSON.stringify({ listingId: inquiry.listingId, notes }), admin.name, now);
+      }
+    });
+
+    const updated = db.prepare("SELECT * FROM buyer_inquiries WHERE id = ?").get(id);
+    res.json({
+      success: true,
+      message: action === "approve"
+        ? "Mutual interest approved. Purchase request moved to Admin Coordination Queue."
+        : "Purchase interest request closed by administrator.",
+      data: updated
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Update Purchase Coordination Status (never falsely marks property as sold!)
+adminRouter.patch("/purchase-interests/:id/coordination", (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const { coordinationStatus, notes } = req.body;
+    const admin = req.user!;
+
+    const validCoordStatuses = [
+      "awaiting_admin_coordination",
+      "coordination_in_progress",
+      "site_visit_scheduled",
+      "purchase_process_in_progress",
+      "closed"
+    ];
+
+    if (!validCoordStatuses.includes(coordinationStatus)) {
+      return res.status(400).json({ success: false, error: "Invalid purchase coordination status." });
+    }
+
+    const inquiry = db.prepare("SELECT * FROM buyer_inquiries WHERE id = ?").get(id) as any;
+    if (!inquiry) {
+      return res.status(404).json({ success: false, error: "Purchase interest not found." });
+    }
+
+    if (inquiry.sellerResponse !== "accepted" || inquiry.adminStatus !== "approved_for_coordination") {
+      return res.status(400).json({
+        success: false,
+        error: "Purchase interest must have seller acceptance and admin approval before coordination status updates."
+      });
+    }
+
+    const now = new Date().toISOString();
+
+    runInTransaction(() => {
+      db.prepare(`
+        UPDATE buyer_inquiries
+        SET coordinationStatus = ?,
+            coordinationNotes = COALESCE(?, coordinationNotes),
+            assignedAdminId = ?,
+            assignedAdminName = ?,
+            updatedAt = ?
+        WHERE id = ?
+      `).run(coordinationStatus, notes ? String(notes).trim() : null, admin.id, admin.name, now, id);
+
+      db.prepare(`
+        INSERT INTO purchase_coordination_timeline (id, inquiryId, action, notes, performedBy, performedById, createdAt)
+        VALUES (?, ?, 'coordination_status_update', ?, ?, ?, ?)
+      `).run(
+        `ptime-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id,
+        `Coordination updated to '${coordinationStatus.replace(/_/g, " ")}'${notes ? `: ${String(notes).trim()}` : ""}`,
+        admin.name,
+        admin.id,
+        now
+      );
+
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'inquiry', ?, 'admin_update_purchase_coordination', ?, ?, ?)
+      `).run(`log-${Date.now()}`, id, JSON.stringify({ coordinationStatus, notes }), admin.name, now);
+    });
+
+    const updated = db.prepare("SELECT * FROM buyer_inquiries WHERE id = ?").get(id);
+    res.json({
+      success: true,
+      message: `Purchase coordination status updated to '${coordinationStatus.replace(/_/g, " ")}'.`,
+      data: updated
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Schedule Site Visit / Meeting for Purchase Interest
+adminRouter.post("/purchase-interests/:id/site-visit", (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const { siteVisitDate, siteVisitLocation, siteVisitNotes } = req.body;
+    const admin = req.user!;
+
+    if (!siteVisitDate) {
+      return res.status(400).json({ success: false, error: "Site visit date is required." });
+    }
+
+    const inquiry = db.prepare("SELECT * FROM buyer_inquiries WHERE id = ?").get(id) as any;
+    if (!inquiry) {
+      return res.status(404).json({ success: false, error: "Purchase interest not found." });
+    }
+
+    if (inquiry.sellerResponse !== "accepted" || inquiry.adminStatus !== "approved_for_coordination") {
+      return res.status(400).json({
+        success: false,
+        error: "Purchase interest must be mutually agreed and admin-approved before scheduling a site visit."
+      });
+    }
+
+    const now = new Date().toISOString();
+    const listing = getDbListingById(inquiry.listingId);
+    const locationStr = siteVisitLocation || `${listing?.locality || ""}, ${listing?.district || ""}`.trim();
+
+    runInTransaction(() => {
+      db.prepare(`
+        UPDATE buyer_inquiries
+        SET coordinationStatus = 'site_visit_scheduled',
+            siteVisitDate = ?,
+            siteVisitLocation = ?,
+            siteVisitNotes = ?,
+            assignedAdminId = ?,
+            assignedAdminName = ?,
+            updatedAt = ?
+        WHERE id = ?
+      `).run(siteVisitDate, locationStr, siteVisitNotes || null, admin.id, admin.name, now, id);
+
+      db.prepare(`
+        INSERT INTO purchase_coordination_timeline (id, inquiryId, action, notes, performedBy, performedById, createdAt)
+        VALUES (?, ?, 'site_visit_scheduled', ?, ?, ?, ?)
+      `).run(
+        `ptime-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id,
+        `Site visit scheduled for ${new Date(siteVisitDate).toLocaleDateString("en-IN")} at ${locationStr}${siteVisitNotes ? `. Notes: ${siteVisitNotes}` : ""}`,
+        admin.name,
+        admin.id,
+        now
+      );
+
+      db.prepare(`
+        INSERT INTO audit_logs (id, entityType, entityId, action, details, performedBy, timestamp)
+        VALUES (?, 'inquiry', ?, 'admin_schedule_purchase_site_visit', ?, ?, ?)
+      `).run(`log-${Date.now()}`, id, JSON.stringify({ siteVisitDate, siteVisitLocation: locationStr, siteVisitNotes }), admin.name, now);
+
+      // Privacy-safe notifications to buyer and seller
+      db.prepare(`
+        INSERT INTO notifications (id, userId, role, title, message, type, link, entityId, isRead, createdAt)
+        VALUES (?, ?, 'owner', 'Property Inspection Scheduled', ?, 'site_visit_scheduled', '/buy', ?, 0, ?)
+      `).run(
+        `notif-${Date.now()}-b`,
+        inquiry.buyerId,
+        `Asset Swap coordinator scheduled a site visit for "${listing?.title || inquiry.listingId}" on ${new Date(siteVisitDate).toLocaleDateString("en-IN")}.`,
+        id,
+        now
+      );
+
+      db.prepare(`
+        INSERT INTO notifications (id, userId, role, title, message, type, link, entityId, isRead, createdAt)
+        VALUES (?, ?, 'owner', 'Property Inspection Scheduled', ?, 'site_visit_scheduled', '/sell', ?, 0, ?)
+      `).run(
+        `notif-${Date.now()}-s`,
+        inquiry.sellerId,
+        `Asset Swap coordinator scheduled a buyer inspection for "${listing?.title || inquiry.listingId}" on ${new Date(siteVisitDate).toLocaleDateString("en-IN")}.`,
+        id,
+        now
+      );
+    });
+
+    const updated = db.prepare("SELECT * FROM buyer_inquiries WHERE id = ?").get(id);
+    res.json({
+      success: true,
+      message: "Site visit scheduled. Buyer and Seller have been notified privately.",
+      data: updated
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Add Staff Note on Purchase Coordination
+adminRouter.post("/purchase-interests/:id/notes", (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const { note } = req.body;
+    const admin = req.user!;
+
+    if (!note || !String(note).trim()) {
+      return res.status(400).json({ success: false, error: "Note content is required." });
+    }
+
+    const now = new Date().toISOString();
+    runInTransaction(() => {
+      db.prepare(`
+        INSERT INTO purchase_coordination_timeline (id, inquiryId, action, notes, performedBy, performedById, createdAt)
+        VALUES (?, ?, 'coordination_note', ?, ?, ?, ?)
+      `).run(
+        `ptime-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id,
+        String(note).trim(),
+        admin.name,
+        admin.id,
+        now
+      );
+
+      db.prepare("UPDATE buyer_inquiries SET coordinationNotes = ?, updatedAt = ? WHERE id = ?").run(
+        String(note).trim(),
+        now,
+        id
+      );
+    });
+
+    res.json({ success: true, message: "Purchase coordination note recorded successfully." });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: message });

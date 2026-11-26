@@ -7,7 +7,6 @@ import { ProtectedRoute } from "./components/ProtectedRoute.js";
 import { MatchesPage } from "./pages/MatchesPage.js";
 import { MatchDetailsPage } from "./pages/MatchDetailsPage.js";
 import { ProposalsPage } from "./pages/ProposalsPage.js";
-import { ActivityPage } from "./pages/ActivityPage.js";
 import { RegisterPropertyPage } from "./pages/RegisterPropertyPage.js";
 import { MyPropertiesPage } from "./pages/MyPropertiesPage.js";
 import { AdminReviewPage } from "./pages/AdminReviewPage.js";
@@ -21,7 +20,6 @@ import { BuyPage } from "./pages/BuyPage.js";
 import { SellPage } from "./pages/SellPage.js";
 import { SwapPage } from "./pages/SwapPage.js";
 import { ProfilePage } from "./pages/ProfilePage.js";
-import { ExchangeProgressPage } from "./pages/ExchangeProgressPage.js";
 import { OwnerLayout } from "./components/OwnerLayout.js";
 
 const PublicLayout: React.FC = () => {
@@ -116,8 +114,8 @@ export const App: React.FC = () => {
             <Route path="/matches" element={<Navigate to="/swap" replace />} />
             <Route path="/matches/:id" element={<MatchDetailsPage />} />
             <Route path="/proposals" element={<ProposalsPage />} />
-            <Route path="/exchange-progress" element={<ExchangeProgressPage />} />
-            <Route path="/activity" element={<ActivityPage />} />
+            <Route path="/exchange-progress" element={<Navigate to="/proposals" replace />} />
+            <Route path="/activity" element={<Navigate to="/owner/dashboard" replace />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/admin" element={<AdminReviewPage />} />
           </Route>

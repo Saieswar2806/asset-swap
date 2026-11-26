@@ -218,13 +218,6 @@ export const ProfilePage: React.FC = () => {
             >
               Swap Proposals
             </Link>
-            <span className="text-slate-300">•</span>
-            <Link
-              to="/activity"
-              className="text-xs font-bold text-slate-600 hover:text-slate-900"
-            >
-              Platform Audit Trail
-            </Link>
           </div>
         </div>
       </div>
